@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Agent } from '@atproto/api';
 import {
+  resolveActor,
   mapConcurrent,
   fetchAllUserBlocks,
   searchActorsTypeahead,
@@ -12,6 +13,79 @@ import {
 } from '../src/bsky';
 
 describe('bsky module', () => {
+  describe('resolveActor', () => {
+    it('throws error if input handle/DID is empty or whitespace', async () => {
+      const mockAgent = {} as Agent;
+      await expect(resolveActor(mockAgent, '')).rejects.toThrow('Input handle or DID cannot be empty');
+      await expect(resolveActor(mockAgent, '   ')).rejects.toThrow('Input handle or DID cannot be empty');
+    });
+
+    it('resolves DID input directly with agent.getProfile if available', async () => {
+      const mockProfile = { did: 'did:plc:123', handle: 'target.bsky.social' };
+      const getProfileMock = vi.fn().mockResolvedValue({ data: mockProfile });
+      const mockAgent = { getProfile: getProfileMock } as unknown as Agent;
+
+      const result = await resolveActor(mockAgent, 'did:plc:123');
+      expect(getProfileMock).toHaveBeenCalledWith({ actor: 'did:plc:123' });
+      expect(result).toEqual({ did: 'did:plc:123', profile: mockProfile });
+    });
+
+    it('resolves DID input via agent.app.bsky.actor.getProfile when agent.getProfile is absent', async () => {
+      const mockProfile = { did: 'did:plc:123', handle: 'target.bsky.social' };
+      const getProfileMock = vi.fn().mockResolvedValue({ data: mockProfile });
+      const mockAgent = {
+        app: { bsky: { actor: { getProfile: getProfileMock } } }
+      } as unknown as Agent;
+
+      const result = await resolveActor(mockAgent, 'did:plc:123');
+      expect(getProfileMock).toHaveBeenCalledWith({ actor: 'did:plc:123' });
+      expect(result).toEqual({ did: 'did:plc:123', profile: mockProfile });
+    });
+
+    it('returns DID object if DID input profile lookup fails', async () => {
+      const getProfileMock = vi.fn().mockRejectedValue(new Error('Profile error'));
+      const mockAgent = { getProfile: getProfileMock } as unknown as Agent;
+
+      const result = await resolveActor(mockAgent, 'did:plc:123');
+      expect(result).toEqual({ did: 'did:plc:123' });
+    });
+
+    it('resolves handle input via agent.getProfile', async () => {
+      const mockProfile = { did: 'did:plc:456', handle: 'user.bsky.social' };
+      const getProfileMock = vi.fn().mockResolvedValue({ data: mockProfile });
+      const mockAgent = { getProfile: getProfileMock } as unknown as Agent;
+
+      const result = await resolveActor(mockAgent, '@user.bsky.social');
+      expect(getProfileMock).toHaveBeenCalledWith({ actor: 'user.bsky.social' });
+      expect(result).toEqual({ did: 'did:plc:456', profile: mockProfile });
+    });
+
+    it('falls back to resolveHandle when getProfile fails for handle input', async () => {
+      const getProfileMock = vi.fn().mockRejectedValue(new Error('Profile not found'));
+      const resolveHandleMock = vi.fn().mockResolvedValue({ data: { did: 'did:plc:789' } });
+      const mockAgent = {
+        getProfile: getProfileMock,
+        resolveHandle: resolveHandleMock
+      } as unknown as Agent;
+
+      const result = await resolveActor(mockAgent, 'user.bsky.social');
+      expect(resolveHandleMock).toHaveBeenCalledWith({ handle: 'user.bsky.social' });
+      expect(result).toEqual({ did: 'did:plc:789' });
+    });
+
+    it('falls back to agent.com.atproto.identity.resolveHandle when agent.resolveHandle is absent', async () => {
+      const getProfileMock = vi.fn().mockRejectedValue(new Error('Profile not found'));
+      const resolveHandleMock = vi.fn().mockResolvedValue({ data: { did: 'did:plc:abc' } });
+      const mockAgent = {
+        app: { bsky: { actor: { getProfile: getProfileMock } } },
+        com: { atproto: { identity: { resolveHandle: resolveHandleMock } } }
+      } as unknown as Agent;
+
+      const result = await resolveActor(mockAgent, 'user.bsky.social');
+      expect(resolveHandleMock).toHaveBeenCalledWith({ handle: 'user.bsky.social' });
+      expect(result).toEqual({ did: 'did:plc:abc' });
+    });
+  });
   describe('mapConcurrent', () => {
     it('returns empty array when items array is empty', async () => {
       const results = await mapConcurrent([], 5, async (x) => x);
@@ -366,137 +440,77 @@ describe('bsky module', () => {
   });
 
   describe('findMutualsBlockingTarget', () => {
-    it('batches relationship calls concurrently, identifies blockers, and reports progress', async () => {
-      const mutuals: MutualProfile[] = Array.from({ length: 35 }, (_, i) => ({
-        did: `did:plc:mutual${i}`,
-        handle: `mutual${i}.bsky.social`
-      }));
+    it('scans blocks concurrently across mutuals, resolves handle target, identifies blockers, and reports progress', async () => {
+      const m0: MutualProfile = { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' };
+      const m1: MutualProfile = { did: 'did:plc:mutual1', handle: 'mutual1.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:mutual2', handle: 'mutual2.bsky.social' };
+      const mutuals = [m0, m1, m2];
 
-      const getRelationshipsMock = vi
-        .fn()
-        .mockResolvedValueOnce({
-          data: {
-            relationships: [
-              {
-                did: 'did:plc:mutual0',
-                blockedBy: 'at://did:plc:mutual0/app.bsky.graph.block/1'
-              },
-              {
-                did: 'did:plc:mutual1',
-                blockedBy: undefined
-              },
-              {
-                did: 'did:plc:unknown',
-                blockedBy: 'at://did:plc:unknown/app.bsky.graph.block/1'
-              }
-            ]
-          }
-        })
-        .mockResolvedValueOnce({
-          data: {
-            relationships: [
-              {
-                did: 'did:plc:mutual32',
-                blockedBy: 'at://did:plc:mutual32/app.bsky.graph.block/1'
-              }
-            ]
-          }
-        });
+      const getProfileMock = vi.fn().mockResolvedValue({
+        data: { did: 'did:plc:resolvedTarget', handle: 'britculpsapp.bsky.social' }
+      });
 
-      const mockAgent = {
-        app: {
-          bsky: {
-            graph: {
-              getRelationships: getRelationshipsMock
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:mutual0') {
+          return Promise.resolve({
+            data: {
+              cursor: undefined,
+              records: [{ value: { subject: 'did:plc:resolvedTarget' } }]
             }
-          }
+          });
         }
-      } as unknown as Agent;
-
-      const progressCallback = vi.fn();
-      const blockers = await findMutualsBlockingTarget(
-        mockAgent,
-        'did:plc:target',
-        mutuals,
-        progressCallback
-      );
-
-      expect(getRelationshipsMock).toHaveBeenCalledTimes(2);
-      expect(progressCallback).toHaveBeenCalledWith({ scanned: 30, total: 35 });
-      expect(progressCallback).toHaveBeenCalledWith({ scanned: 35, total: 35 });
-
-      expect(blockers).toEqual(
-        expect.arrayContaining([
-          { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' },
-          { did: 'did:plc:mutual32', handle: 'mutual32.bsky.social' }
-        ])
-      );
-    });
-
-    it('works without onProgress callback', async () => {
-      const mutuals: MutualProfile[] = [
-        { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' }
-      ];
-
-      const getRelationshipsMock = vi.fn().mockResolvedValueOnce({
-        data: {
-          relationships: []
+        if (repo === 'did:plc:mutual2') {
+          return Promise.resolve({
+            data: {
+              cursor: undefined,
+              records: [{ value: { subject: 'did:plc:resolvedTarget' } }]
+            }
+          });
         }
+        return Promise.resolve({ data: { cursor: undefined, records: [] } });
       });
 
       const mockAgent = {
-        app: {
-          bsky: {
-            graph: {
-              getRelationships: getRelationshipsMock
-            }
-          }
-        }
-      } as unknown as Agent;
-
-      const blockers = await findMutualsBlockingTarget(
-        mockAgent,
-        'did:plc:target',
-        mutuals
-      );
-
-      expect(blockers).toEqual([]);
-    });
-
-    it('handles batch errors gracefully and continues', async () => {
-      const mutuals: MutualProfile[] = [
-        { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' }
-      ];
-
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const getRelationshipsMock = vi.fn().mockRejectedValue(new Error('Network error'));
-
-      const mockAgent = {
-        app: {
-          bsky: {
-            graph: {
-              getRelationships: getRelationshipsMock
-            }
-          }
-        }
+        getProfile: getProfileMock,
+        com: { atproto: { repo: { listRecords: listRecordsMock } } }
       } as unknown as Agent;
 
       const progressCallback = vi.fn();
       const blockers = await findMutualsBlockingTarget(
         mockAgent,
-        'did:plc:target',
+        'britculpsapp.bsky.social',
         mutuals,
         progressCallback
       );
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error fetching relationship batch:',
-        expect.any(Error)
-      );
-      expect(progressCallback).toHaveBeenCalledWith({ scanned: 1, total: 1 });
-      expect(blockers).toEqual([]);
+      expect(getProfileMock).toHaveBeenCalledWith({ actor: 'britculpsapp.bsky.social' });
+      expect(progressCallback).toHaveBeenCalledWith({ scanned: expect.any(Number), total: 3 });
+      expect(blockers).toHaveLength(2);
+      expect(blockers).toEqual(expect.arrayContaining([m0, m2]));
+    });
 
-      consoleErrorSpy.mockRestore();
+    it('works without onProgress callback and falls back to targetInput if resolution fails', async () => {
+      const m0: MutualProfile = { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' };
+      const getProfileMock = vi.fn().mockRejectedValue(new Error('Resolve error'));
+      const resolveHandleMock = vi.fn().mockRejectedValue(new Error('Resolve handle error'));
+
+      const listRecordsMock = vi.fn().mockResolvedValue({
+        data: { cursor: undefined, records: [] }
+      });
+
+      const mockAgent = {
+        getProfile: getProfileMock,
+        resolveHandle: resolveHandleMock,
+        com: { atproto: { repo: { listRecords: listRecordsMock } } }
+      } as unknown as Agent;
+
+      const blockers = await findMutualsBlockingTarget(
+        mockAgent,
+        'did:plc:unresolvedTarget',
+        [m0]
+      );
+
+      expect(blockers).toEqual([]);
     });
   });
 

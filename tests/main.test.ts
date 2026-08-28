@@ -20,12 +20,14 @@ const mockSearchActorsTypeahead = vi.fn();
 const mockFetchAllMutuals = vi.fn();
 const mockFindMutualsBlockingTarget = vi.fn();
 const mockFindTopBlockersAmongMutuals = vi.fn();
+const mockResolveActor = vi.fn();
 
 vi.mock('../src/bsky', () => ({
   searchActorsTypeahead: (...args: any[]) => mockSearchActorsTypeahead(...args),
   fetchAllMutuals: (...args: any[]) => mockFetchAllMutuals(...args),
   findMutualsBlockingTarget: (...args: any[]) => mockFindMutualsBlockingTarget(...args),
-  findTopBlockersAmongMutuals: (...args: any[]) => mockFindTopBlockersAmongMutuals(...args)
+  findTopBlockersAmongMutuals: (...args: any[]) => mockFindTopBlockersAmongMutuals(...args),
+  resolveActor: (...args: any[]) => mockResolveActor(...args)
 }));
 
 describe('main module', () => {
@@ -183,13 +185,13 @@ describe('main module', () => {
 
       const mockSession = { sub: 'did:plc:user123' };
       const mockAgent = {
-        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } }),
-        resolveHandle: vi.fn().mockResolvedValue({ data: { did: 'did:plc:target' } })
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
       };
 
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
 
       mockFetchAllMutuals.mockResolvedValue([
         { did: 'did:plc:m1', handle: 'm1.bsky.social' }
@@ -444,15 +446,14 @@ describe('main module', () => {
       expect(window.alert).toHaveBeenCalledWith('Please enter a Bluesky username.');
     });
 
-    it('shows error message if resolveHandle fails', async () => {
+    it('shows error message if resolveActor fails', async () => {
       const mockSession = { sub: 'did:plc:user123' };
-      const mockAgent = {
-        resolveHandle: vi.fn().mockRejectedValue(new Error('Resolve error'))
-      };
+      const mockAgent = {};
 
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockRejectedValue(new Error('Resolve error'));
 
       await loadMainModule();
 
@@ -464,21 +465,20 @@ describe('main module', () => {
       checkBtn.click();
       await vi.runAllTimersAsync();
 
-      expect(mockAgent.resolveHandle).toHaveBeenCalledWith({ handle: 'invalid.handle' });
+      expect(mockResolveActor).toHaveBeenCalledWith(mockAgent, 'invalid.handle');
       expect(statusContainer.textContent).toBe('Could not resolve handle. Check spelling.');
     });
 
     it('handles scenario where cached mutuals is empty array', async () => {
       const mockSession = { sub: 'did:plc:user123' };
-      const mockAgent = {
-        resolveHandle: vi.fn().mockResolvedValue({ data: { did: 'did:plc:target' } })
-      };
+      const mockAgent = {};
 
       sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([]));
 
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
 
       await loadMainModule();
 
@@ -496,13 +496,13 @@ describe('main module', () => {
     it('fetches mutuals when uncached, updates progress, saves to cache, and renders blockers', async () => {
       const mockSession = { sub: 'did:plc:user123' };
       const mockAgent = {
-        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } }),
-        resolveHandle: vi.fn().mockResolvedValue({ data: { did: 'did:plc:target' } })
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
       };
 
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
 
       const mutualList = [
         { did: 'did:plc:m1', handle: 'm1.bsky.social', displayName: '<M1>', avatar: 'http://m1.jpg' },
@@ -590,8 +590,7 @@ describe('main module', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockSession = { sub: 'did:plc:user123' };
       const mockAgent = {
-        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } }),
-        resolveHandle: vi.fn().mockResolvedValue({ data: { did: 'did:plc:target' } })
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
       };
 
       sessionStorage.setItem(
@@ -602,6 +601,7 @@ describe('main module', () => {
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
 
       mockFindMutualsBlockingTarget.mockRejectedValue(new Error('API failure'));
 
@@ -624,8 +624,7 @@ describe('main module', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockSession = { sub: 'did:plc:user123' };
       const mockAgent = {
-        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } }),
-        resolveHandle: vi.fn().mockResolvedValue({ data: { did: 'did:plc:target' } })
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
       };
 
       sessionStorage.setItem(
@@ -636,6 +635,7 @@ describe('main module', () => {
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
 
       mockFindMutualsBlockingTarget.mockRejectedValue('String error');
 
