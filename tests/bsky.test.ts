@@ -4,6 +4,7 @@ import {
   searchActorsTypeahead,
   fetchAllMutuals,
   findMutualsBlockingTarget,
+  findTopBlockersAmongMutuals,
   MutualProfile
 } from '../src/bsky';
 
@@ -276,6 +277,129 @@ describe('bsky module', () => {
       );
       expect(progressCallback).toHaveBeenCalledWith({ scanned: 1, total: 1 });
       expect(blockers).toEqual([]);
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('findTopBlockersAmongMutuals', () => {
+    it('aggregates blocking/blockedBy relationships, sorts blockers descending, and reports progress', async () => {
+      const m1: MutualProfile = { did: 'did:plc:m1', handle: 'm1.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:m2', handle: 'm2.bsky.social' };
+      const m3: MutualProfile = { did: 'did:plc:m3', handle: 'm3.bsky.social' };
+
+      const mutuals = [m1, m2, m3];
+
+      const getRelationshipsMock = vi
+        .fn()
+        // Iteration 0: current = m1, others = [m2, m3] (m1 blocks m2 and m3, plus unknown DIDs for branch coverage)
+        .mockResolvedValueOnce({
+          data: {
+            relationships: [
+              { did: 'did:plc:m2', blocking: 'at://did:plc:m1/app.bsky.graph.block/1', blockedBy: undefined },
+              { did: 'did:plc:m3', blocking: 'at://did:plc:m1/app.bsky.graph.block/2', blockedBy: undefined },
+              { did: 'did:plc:unknown1', blocking: 'at://did:plc:m1/app.bsky.graph.block/3', blockedBy: undefined },
+              { did: 'did:plc:unknown2', blocking: undefined, blockedBy: 'at://did:plc:unknown2/app.bsky.graph.block/4' }
+            ]
+          }
+        })
+        // Iteration 1: current = m2, others = [m1, m3] (m2 is blocked by m1, m2 blocks m3)
+        .mockResolvedValueOnce({
+          data: {
+            relationships: [
+              { did: 'did:plc:m1', blocking: undefined, blockedBy: 'at://did:plc:m1/app.bsky.graph.block/1' },
+              { did: 'did:plc:m3', blocking: 'at://did:plc:m2/app.bsky.graph.block/3', blockedBy: undefined }
+            ]
+          }
+        })
+        // Iteration 2: current = m3, others = [m1, m2] (m3 is blocked by m1 and m2)
+        .mockResolvedValueOnce({
+          data: {
+            relationships: [
+              { did: 'did:plc:m1', blocking: undefined, blockedBy: 'at://did:plc:m1/app.bsky.graph.block/2' },
+              { did: 'did:plc:m2', blocking: undefined, blockedBy: 'at://did:plc:m2/app.bsky.graph.block/3' }
+            ]
+          }
+        });
+
+      const mockAgent = {
+        app: {
+          bsky: {
+            graph: {
+              getRelationships: getRelationshipsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const progressCallback = vi.fn();
+      const summaries = await findTopBlockersAmongMutuals(mockAgent, mutuals, progressCallback);
+
+      expect(progressCallback).toHaveBeenNthCalledWith(1, { scanned: 1, total: 3 });
+      expect(progressCallback).toHaveBeenNthCalledWith(2, { scanned: 2, total: 3 });
+      expect(progressCallback).toHaveBeenNthCalledWith(3, { scanned: 3, total: 3 });
+
+      // m1 blocks m2 and m3 -> 2 blocked mutuals
+      // m2 blocks m3 -> 1 blocked mutual
+      // m3 blocks 0 -> filtered out
+      expect(summaries.length).toBe(2);
+      expect(summaries[0].blocker).toEqual(m1);
+      expect(summaries[0].blockedMutuals).toHaveLength(2);
+      expect(summaries[0].blockedMutuals).toEqual(expect.arrayContaining([m2, m3]));
+      expect(summaries[1].blocker).toEqual(m2);
+      expect(summaries[1].blockedMutuals).toHaveLength(1);
+      expect(summaries[1].blockedMutuals).toEqual([m3]);
+    });
+
+    it('works without onProgress callback and handles batches (>30 items)', async () => {
+      const mutuals: MutualProfile[] = Array.from({ length: 32 }, (_, i) => ({
+        did: `did:plc:m${i}`,
+        handle: `m${i}.bsky.social`
+      }));
+
+      const getRelationshipsMock = vi.fn().mockResolvedValue({
+        data: { relationships: [] }
+      });
+
+      const mockAgent = {
+        app: {
+          bsky: {
+            graph: {
+              getRelationships: getRelationshipsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const summaries = await findTopBlockersAmongMutuals(mockAgent, mutuals);
+      expect(summaries).toEqual([]);
+    });
+
+    it('catches and logs errors during relationship batch fetch in mutual scan', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mutuals: MutualProfile[] = [
+        { did: 'did:plc:m1', handle: 'm1.bsky.social' },
+        { did: 'did:plc:m2', handle: 'm2.bsky.social' }
+      ];
+
+      const getRelationshipsMock = vi.fn().mockRejectedValue(new Error('Batch error'));
+      const mockAgent = {
+        app: {
+          bsky: {
+            graph: {
+              getRelationships: getRelationshipsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const summaries = await findTopBlockersAmongMutuals(mockAgent, mutuals);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error fetching relationship batch for mutual scan:',
+        expect.any(Error)
+      );
+      expect(summaries).toEqual([]);
 
       consoleErrorSpy.mockRestore();
     });

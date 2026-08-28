@@ -4,7 +4,9 @@ import {
   searchActorsTypeahead,
   fetchAllMutuals,
   findMutualsBlockingTarget,
-  MutualProfile
+  findTopBlockersAmongMutuals,
+  MutualProfile,
+  MutualBlockerSummary
 } from './bsky';
 import { AppBskyActorDefs } from '@atproto/api';
 
@@ -59,6 +61,7 @@ const logoutBtn = document.getElementById('logout-btn')!;
 const targetInput = document.getElementById('target-input') as HTMLInputElement;
 const suggestionsList = document.getElementById('suggestions-list')!;
 const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
+const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
 
 const statusContainer = document.getElementById('status-container')!;
 const progressContainer = document.getElementById('progress-container')!;
@@ -278,6 +281,64 @@ checkBtn.addEventListener('click', async () => {
   }
 });
 
+// Run top blockers among mutuals scan
+scanMutualsBtn.addEventListener('click', async () => {
+  const agent = getAgent();
+  const session = getSession();
+  if (!session) return;
+
+  resultsContainer.innerHTML = '';
+
+  if (!cachedMutuals) {
+    cachedMutuals = getCachedMutualsFromStorage(session.sub);
+  }
+
+  if (!cachedMutuals) {
+    statusContainer.textContent = 'Fetching your mutuals list...';
+    progressContainer.classList.add('hidden');
+    cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
+      statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
+    });
+    setCachedMutualsInStorage(session.sub, cachedMutuals);
+  }
+
+  if (cachedMutuals.length === 0) {
+    statusContainer.textContent = 'You have no mutual followers on this account.';
+    progressContainer.classList.add('hidden');
+    return;
+  }
+
+  statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} mutuals...`;
+  progressContainer.classList.remove('hidden');
+  progressBar.max = cachedMutuals.length;
+  progressBar.value = 0;
+
+  checkBtn.disabled = true;
+  scanMutualsBtn.disabled = true;
+
+  try {
+    const topBlockers = await findTopBlockersAmongMutuals(
+      agent,
+      cachedMutuals,
+      ({ scanned, total }) => {
+        statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} mutuals...`;
+        progressBar.max = total;
+        progressBar.value = scanned;
+      }
+    );
+
+    statusContainer.textContent = `Scan complete. Found ${topBlockers.length} mutual(s) blocking other mutuals.`;
+    renderMutualBlockersResults(topBlockers);
+  } catch (err: any) {
+    console.error('Mutual Scan Error:', err);
+    statusContainer.textContent = `Error performing mutual block scan: ${err.message || err}`;
+  } finally {
+    checkBtn.disabled = false;
+    scanMutualsBtn.disabled = false;
+    progressContainer.classList.add('hidden');
+  }
+});
+
 function renderResults(blockers: MutualProfile[]) {
   if (blockers.length === 0) {
     resultsContainer.innerHTML = `<p class="no-results">None of your mutuals block this account.</p>`;
@@ -313,6 +374,89 @@ function renderResults(blockers: MutualProfile[]) {
         .join('')}
     </ul>
   `;
+}
+
+function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
+  if (summaries.length === 0) {
+    resultsContainer.innerHTML = `<p class="no-results">None of your mutuals block any of your other mutuals.</p>`;
+    return;
+  }
+
+  const listElement = document.createElement('ul');
+  listElement.className = 'blocker-list';
+
+  summaries.forEach((summary, index) => {
+    const blockerCard = document.createElement('li');
+    blockerCard.className = 'mutual-blocker-card';
+
+    const blockerProfileUrl = `https://bsky.app/profile/${encodeURIComponent(summary.blocker.handle)}`;
+    const avatarImg = summary.blocker.avatar
+      ? `<img src="${summary.blocker.avatar}" class="avatar-md" alt="${escapeHtml(summary.blocker.handle)} avatar" />`
+      : `<div class="avatar-md avatar-placeholder"></div>`;
+    const blockerDisplayName = escapeHtml(summary.blocker.displayName || summary.blocker.handle);
+    const blockerHandle = escapeHtml(summary.blocker.handle);
+
+    blockerCard.innerHTML = `
+      <div class="mutual-blocker-header">
+        <a href="${blockerProfileUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
+          ${avatarImg}
+        </a>
+        <div class="blocker-info">
+          <a href="${blockerProfileUrl}" target="_blank" rel="noopener noreferrer" class="display-name">
+            <strong>${blockerDisplayName}</strong>
+          </a>
+          <a href="${blockerProfileUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${blockerHandle}</a>
+        </div>
+        <button class="toggle-expand-btn" id="toggle-btn-${index}">
+          Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;
+        </button>
+      </div>
+      <div class="blocked-mutuals-container hidden" id="blocked-container-${index}">
+        <ul class="blocked-mutuals-list">
+          ${summary.blockedMutuals
+            .map((bm) => {
+              const bmUrl = `https://bsky.app/profile/${encodeURIComponent(bm.handle)}`;
+              const bmAvatar = bm.avatar
+                ? `<img src="${bm.avatar}" class="avatar-xs" alt="${escapeHtml(bm.handle)} avatar" />`
+                : `<div class="avatar-xs avatar-placeholder"></div>`;
+              return `
+                <li class="blocked-mutual-item">
+                  <a href="${bmUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
+                    ${bmAvatar}
+                  </a>
+                  <div class="blocker-info">
+                    <a href="${bmUrl}" target="_blank" rel="noopener noreferrer" class="display-name">
+                      <strong>${escapeHtml(bm.displayName || bm.handle)}</strong>
+                    </a>
+                    <a href="${bmUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${escapeHtml(bm.handle)}</a>
+                  </div>
+                </li>
+              `;
+            })
+            .join('')}
+        </ul>
+      </div>
+    `;
+
+    listElement.appendChild(blockerCard);
+  });
+
+  resultsContainer.appendChild(listElement);
+
+  summaries.forEach((summary, index) => {
+    const toggleBtn = document.getElementById(`toggle-btn-${index}`)!;
+    const container = document.getElementById(`blocked-container-${index}`)!;
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = container.classList.contains('hidden');
+      if (isHidden) {
+        container.classList.remove('hidden');
+        toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9650;`;
+      } else {
+        container.classList.add('hidden');
+        toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;`;
+      }
+    });
+  });
 }
 
 bootstrap();

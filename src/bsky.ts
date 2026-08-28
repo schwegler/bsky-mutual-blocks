@@ -12,6 +12,11 @@ export interface BlockCheckProgress {
   total: number;
 }
 
+export interface MutualBlockerSummary {
+  blocker: MutualProfile;
+  blockedMutuals: MutualProfile[];
+}
+
 // 1. Search actors for input autocomplete
 export async function searchActorsTypeahead(
   agent: Agent,
@@ -106,4 +111,74 @@ export async function findMutualsBlockingTarget(
   }
 
   return blockingMutuals;
+}
+
+// 4. Find which mutuals block the most of your other mutuals
+export async function findTopBlockersAmongMutuals(
+  agent: Agent,
+  mutuals: MutualProfile[],
+  onProgress?: (progress: BlockCheckProgress) => void
+): Promise<MutualBlockerSummary[]> {
+  const BATCH_SIZE = 30;
+  const blockerMap = new Map<string, { blocker: MutualProfile; blockedMap: Map<string, MutualProfile> }>();
+
+  for (const m of mutuals) {
+    blockerMap.set(m.did, { blocker: m, blockedMap: new Map() });
+  }
+
+  for (let i = 0; i < mutuals.length; i++) {
+    const current = mutuals[i];
+    const others = mutuals.filter((m) => m.did !== current.did);
+
+    for (let j = 0; j < others.length; j += BATCH_SIZE) {
+      const batch = others.slice(j, j + BATCH_SIZE);
+      const otherDids = batch.map((m) => m.did);
+
+      try {
+        const res = await agent.app.bsky.graph.getRelationships({
+          actor: current.did,
+          others: otherDids
+        });
+
+        const relationships = res.data.relationships as AppBskyGraphDefs.Relationship[];
+        for (const rel of relationships) {
+          if (rel.blocking) {
+            const blockedMutual = batch.find((m) => m.did === rel.did);
+            if (blockedMutual) {
+              blockerMap.get(current.did)!.blockedMap.set(blockedMutual.did, blockedMutual);
+            }
+          }
+          if (rel.blockedBy) {
+            const blockerMutual = batch.find((m) => m.did === rel.did);
+            if (blockerMutual) {
+              blockerMap.get(blockerMutual.did)!.blockedMap.set(current.did, current);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching relationship batch for mutual scan:', err);
+      }
+    }
+
+    if (onProgress) {
+      onProgress({
+        scanned: i + 1,
+        total: mutuals.length
+      });
+    }
+  }
+
+  const summaries: MutualBlockerSummary[] = [];
+  for (const entry of blockerMap.values()) {
+    if (entry.blockedMap.size > 0) {
+      summaries.push({
+        blocker: entry.blocker,
+        blockedMutuals: Array.from(entry.blockedMap.values())
+      });
+    }
+  }
+
+  summaries.sort((a, b) => b.blockedMutuals.length - a.blockedMutuals.length);
+
+  return summaries;
 }
