@@ -216,19 +216,34 @@ export async function findMutualsBlockingTarget(
   concurrency = 5
 ): Promise<MutualProfile[]> {
   let targetDid = targetInput;
+  let targetHandle: string | undefined = undefined;
+
   try {
     const resolved = await resolveActor(agent, targetInput);
     targetDid = resolved.did;
+    targetHandle = resolved.profile?.handle;
   } catch {
     // Fall back to targetInput if resolution fails
   }
+
+  const targetIdentifiers = new Set<string>();
+  targetIdentifiers.add(targetDid.trim().toLowerCase().replace(/^@/, ''));
+  if (targetHandle) {
+    targetIdentifiers.add(targetHandle.trim().toLowerCase().replace(/^@/, ''));
+  }
+  targetIdentifiers.add(targetInput.trim().toLowerCase().replace(/^@/, ''));
 
   const blockingMutuals: MutualProfile[] = [];
   let scannedCount = 0;
 
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
     const blocks = await fetchAllUserBlocks(agent, mutual.did);
-    if (blocks.includes(targetDid)) {
+    const isBlocked = blocks.some((b) => {
+      const cleanB = b.trim().toLowerCase().replace(/^@/, '');
+      return targetIdentifiers.has(cleanB);
+    });
+
+    if (isBlocked) {
       blockingMutuals.push(mutual);
     }
     scannedCount++;
@@ -252,7 +267,10 @@ export async function findTopBlockersAmongMutuals(
 ): Promise<MutualBlockerSummary[]> {
   const mutualsMap = new Map<string, MutualProfile>();
   for (const m of mutuals) {
-    mutualsMap.set(m.did, m);
+    mutualsMap.set(m.did.trim().toLowerCase().replace(/^@/, ''), m);
+    if (m.handle) {
+      mutualsMap.set(m.handle.trim().toLowerCase().replace(/^@/, ''), m);
+    }
   }
 
   // Map to hold DID -> Set of mutual DIDs that they block
@@ -262,14 +280,16 @@ export async function findTopBlockersAmongMutuals(
   // Fetch all blocks concurrently across mutuals
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
     const blocks = await fetchAllUserBlocks(agent, mutual.did);
-    for (const blockedDid of blocks) {
-      if (blockedDid !== mutual.did && mutualsMap.has(blockedDid)) {
+    for (const blockedSubject of blocks) {
+      const cleanSubject = blockedSubject.trim().toLowerCase().replace(/^@/, '');
+      const matchedMutual = mutualsMap.get(cleanSubject);
+      if (matchedMutual && matchedMutual.did !== mutual.did) {
         let set = blockerMap.get(mutual.did);
         if (!set) {
           set = new Set<string>();
           blockerMap.set(mutual.did, set);
         }
-        set.add(blockedDid);
+        set.add(matchedMutual.did);
       }
     }
     scannedCount++;
@@ -300,8 +320,8 @@ export async function findTopBlockersAmongMutuals(
   }
 
   const profilesMap = new Map<string, MutualProfile>();
-  for (const [did, profile] of mutualsMap.entries()) {
-    profilesMap.set(did, profile);
+  for (const m of mutuals) {
+    profilesMap.set(m.did, m);
   }
 
   // Batch resolve profile metadata in chunks of up to 25 for any missing or incomplete profiles
