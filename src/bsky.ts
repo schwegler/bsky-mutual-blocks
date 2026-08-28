@@ -216,32 +216,20 @@ export async function findMutualsBlockingTarget(
   concurrency = 5
 ): Promise<MutualProfile[]> {
   let targetDid = targetInput;
-  let targetHandle: string | undefined = undefined;
 
   try {
     const resolved = await resolveActor(agent, targetInput);
     targetDid = resolved.did;
-    targetHandle = resolved.profile?.handle;
   } catch {
     // Fall back to targetInput if resolution fails
   }
-
-  const targetIdentifiers = new Set<string>();
-  targetIdentifiers.add(targetDid.trim().toLowerCase().replace(/^@/, ''));
-  if (targetHandle) {
-    targetIdentifiers.add(targetHandle.trim().toLowerCase().replace(/^@/, ''));
-  }
-  targetIdentifiers.add(targetInput.trim().toLowerCase().replace(/^@/, ''));
 
   const blockingMutuals: MutualProfile[] = [];
   let scannedCount = 0;
 
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
     const blocks = await fetchAllUserBlocks(agent, mutual.did);
-    const isBlocked = blocks.some((b) => {
-      const cleanB = b.trim().toLowerCase().replace(/^@/, '');
-      return targetIdentifiers.has(cleanB);
-    });
+    const isBlocked = blocks.some((b) => b === targetDid);
 
     if (isBlocked) {
       blockingMutuals.push(mutual);
@@ -267,10 +255,7 @@ export async function findTopBlockersAmongMutuals(
 ): Promise<MutualBlockerSummary[]> {
   const mutualsMap = new Map<string, MutualProfile>();
   for (const m of mutuals) {
-    mutualsMap.set(m.did.trim().toLowerCase().replace(/^@/, ''), m);
-    if (m.handle) {
-      mutualsMap.set(m.handle.trim().toLowerCase().replace(/^@/, ''), m);
-    }
+    mutualsMap.set(m.did, m);
   }
 
   // Map to hold DID -> Set of mutual DIDs that they block
@@ -281,8 +266,7 @@ export async function findTopBlockersAmongMutuals(
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
     const blocks = await fetchAllUserBlocks(agent, mutual.did);
     for (const blockedSubject of blocks) {
-      const cleanSubject = blockedSubject.trim().toLowerCase().replace(/^@/, '');
-      const matchedMutual = mutualsMap.get(cleanSubject);
+      const matchedMutual = mutualsMap.get(blockedSubject);
       if (matchedMutual && matchedMutual.did !== mutual.did) {
         let set = blockerMap.get(mutual.did);
         if (!set) {

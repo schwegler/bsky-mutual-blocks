@@ -513,32 +513,6 @@ describe('bsky module', () => {
       expect(blockers).toEqual([]);
     });
 
-    it('matches target when block record stores target handle instead of DID', async () => {
-      const m0: MutualProfile = { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' };
-      const getProfileMock = vi.fn().mockResolvedValue({
-        data: { did: 'did:plc:targetDid', handle: 'target.bsky.social' }
-      });
-
-      const listRecordsMock = vi.fn().mockResolvedValue({
-        data: {
-          cursor: undefined,
-          records: [{ value: { subject: '@target.bsky.social' } }]
-        }
-      });
-
-      const mockAgent = {
-        getProfile: getProfileMock,
-        com: { atproto: { repo: { listRecords: listRecordsMock } } }
-      } as unknown as Agent;
-
-      const blockers = await findMutualsBlockingTarget(
-        mockAgent,
-        'did:plc:targetDid',
-        [m0]
-      );
-
-      expect(blockers).toEqual([m0]);
-    });
   });
 
   describe('findTopBlockersAmongMutuals', () => {
@@ -743,39 +717,6 @@ describe('bsky module', () => {
       });
     });
 
-    it('matches mutual when block record stores mutual handle instead of DID and handles empty handle', async () => {
-      const m1: MutualProfile = { did: 'did:plc:m1', handle: 'm1.bsky.social' };
-      const m2: MutualProfile = { did: 'did:plc:m2', handle: 'm2.bsky.social' };
-      const mNoHandle: MutualProfile = { did: 'did:plc:nohandle', handle: '' };
-
-      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
-        if (repo === 'did:plc:m1') {
-          return Promise.resolve({
-            data: {
-              cursor: undefined,
-              records: [{ value: { subject: '@m2.bsky.social' } }]
-            }
-          });
-        }
-        return Promise.resolve({ data: { cursor: undefined, records: [] } });
-      });
-
-      const mockAgent = {
-        com: {
-          atproto: {
-            repo: {
-              listRecords: listRecordsMock
-            }
-          }
-        }
-      } as unknown as Agent;
-
-      const summaries = await findTopBlockersAmongMutuals(mockAgent, [m1, m2, mNoHandle]);
-
-      expect(summaries.length).toBe(1);
-      expect(summaries[0].blocker).toEqual(m1);
-      expect(summaries[0].blockedMutuals).toEqual([m2]);
-    });
   });
 
   describe('findMutualsBlockingMutuals', () => {
