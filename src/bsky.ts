@@ -17,6 +17,76 @@ export interface MutualBlockerSummary {
   blockedMutuals: MutualProfile[];
 }
 
+// Helper: Process array concurrently with a concurrency limit
+export async function mapConcurrent<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  if (items.length === 0) return results;
+
+  let index = 0;
+  const workerCount = Math.min(limit, items.length);
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < items.length) {
+      const currentIndex = index++;
+      results[currentIndex] = await fn(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Fetch all direct block records for a single user using full pagination.
+ */
+export async function fetchAllUserBlocks(agent: Agent, repoDid: string): Promise<string[]> {
+  const blockedDids: string[] = [];
+  let cursor: string | undefined = undefined;
+
+  do {
+    try {
+      const api = agent.com?.atproto?.repo
+        ? agent.com.atproto.repo
+        : agent.api?.com?.atproto?.repo
+        ? agent.api.com.atproto.repo
+        : null;
+
+      if (!api || typeof api.listRecords !== 'function') {
+        break;
+      }
+
+      const response = await api.listRecords({
+        repo: repoDid,
+        collection: 'app.bsky.graph.block',
+        limit: 100,
+        cursor
+      });
+
+      if (!response?.data?.records) {
+        break;
+      }
+
+      for (const record of response.data.records) {
+        const subject = (record.value as { subject?: string })?.subject;
+        if (subject) {
+          blockedDids.push(subject);
+        }
+      }
+
+      cursor = response.data.cursor;
+    } catch {
+      // Handle account repos that are private, deleted, deactivated, or rate-limited
+      break;
+    }
+  } while (cursor);
+
+  return blockedDids;
+}
+
 // 1. Search actors for input autocomplete
 export async function searchActorsTypeahead(
   agent: Agent,
@@ -73,13 +143,20 @@ export async function findMutualsBlockingTarget(
   agent: Agent,
   targetDid: string,
   mutuals: MutualProfile[],
-  onProgress?: (progress: BlockCheckProgress) => void
+  onProgress?: (progress: BlockCheckProgress) => void,
+  concurrency = 5
 ): Promise<MutualProfile[]> {
   const blockingMutuals: MutualProfile[] = [];
   const BATCH_SIZE = 30; // max supported by getRelationships
 
+  const batches: MutualProfile[][] = [];
   for (let i = 0; i < mutuals.length; i += BATCH_SIZE) {
-    const batch = mutuals.slice(i, i + BATCH_SIZE);
+    batches.push(mutuals.slice(i, i + BATCH_SIZE));
+  }
+
+  let scanned = 0;
+
+  await mapConcurrent(batches, concurrency, async (batch) => {
     const others = batch.map((m) => m.did);
 
     try {
@@ -102,13 +179,14 @@ export async function findMutualsBlockingTarget(
       console.error('Error fetching relationship batch:', err);
     }
 
+    scanned += batch.length;
     if (onProgress) {
       onProgress({
-        scanned: Math.min(i + BATCH_SIZE, mutuals.length),
+        scanned: Math.min(scanned, mutuals.length),
         total: mutuals.length
       });
     }
-  }
+  });
 
   return blockingMutuals;
 }
@@ -117,68 +195,97 @@ export async function findMutualsBlockingTarget(
 export async function findTopBlockersAmongMutuals(
   agent: Agent,
   mutuals: MutualProfile[],
-  onProgress?: (progress: BlockCheckProgress) => void
+  onProgress?: (progress: BlockCheckProgress) => void,
+  concurrency = 12
 ): Promise<MutualBlockerSummary[]> {
-  const BATCH_SIZE = 30;
-  const blockerMap = new Map<string, { blocker: MutualProfile; blockedMap: Map<string, MutualProfile> }>();
-
+  const mutualsMap = new Map<string, MutualProfile>();
   for (const m of mutuals) {
-    blockerMap.set(m.did, { blocker: m, blockedMap: new Map() });
+    mutualsMap.set(m.did, m);
   }
 
-  for (let i = 0; i < mutuals.length; i++) {
-    const current = mutuals[i];
-    const others = mutuals.filter((m) => m.did !== current.did);
+  // Map to hold DID -> Set of mutual DIDs that they block
+  const blockerMap = new Map<string, Set<string>>();
+  let scannedCount = 0;
 
-    for (let j = 0; j < others.length; j += BATCH_SIZE) {
-      const batch = others.slice(j, j + BATCH_SIZE);
-      const otherDids = batch.map((m) => m.did);
-
-      try {
-        const res = await agent.app.bsky.graph.getRelationships({
-          actor: current.did,
-          others: otherDids
-        });
-
-        const relationships = res.data.relationships as AppBskyGraphDefs.Relationship[];
-        for (const rel of relationships) {
-          if (rel.blocking) {
-            const blockedMutual = batch.find((m) => m.did === rel.did);
-            if (blockedMutual) {
-              blockerMap.get(current.did)!.blockedMap.set(blockedMutual.did, blockedMutual);
-            }
-          }
-          if (rel.blockedBy) {
-            const blockerMutual = batch.find((m) => m.did === rel.did);
-            if (blockerMutual) {
-              blockerMap.get(blockerMutual.did)!.blockedMap.set(current.did, current);
-            }
-          }
+  // Fetch all blocks concurrently across mutuals
+  await mapConcurrent(mutuals, concurrency, async (mutual) => {
+    const blocks = await fetchAllUserBlocks(agent, mutual.did);
+    for (const blockedDid of blocks) {
+      if (blockedDid !== mutual.did && mutualsMap.has(blockedDid)) {
+        let set = blockerMap.get(mutual.did);
+        if (!set) {
+          set = new Set<string>();
+          blockerMap.set(mutual.did, set);
         }
-      } catch (err) {
-        console.error('Error fetching relationship batch for mutual scan:', err);
+        set.add(blockedDid);
       }
     }
-
+    scannedCount++;
     if (onProgress) {
       onProgress({
-        scanned: i + 1,
+        scanned: scannedCount,
         total: mutuals.length
       });
     }
-  }
+  });
 
-  const summaries: MutualBlockerSummary[] = [];
-  for (const entry of blockerMap.values()) {
-    if (entry.blockedMap.size > 0) {
-      summaries.push({
-        blocker: entry.blocker,
-        blockedMutuals: Array.from(entry.blockedMap.values())
-      });
+  // Sort by block count descending
+  const sortedEntries = Array.from(blockerMap.entries())
+    .map(([did, blockedSet]) => ({
+      did,
+      count: blockedSet.size,
+      blockedDids: Array.from(blockedSet)
+    }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  const allNeededDids = new Set<string>();
+  for (const entry of sortedEntries) {
+    allNeededDids.add(entry.did);
+    for (const bDid of entry.blockedDids) {
+      allNeededDids.add(bDid);
     }
   }
 
-  summaries.sort((a, b) => b.blockedMutuals.length - a.blockedMutuals.length);
+  const profilesMap = new Map<string, MutualProfile>();
+  for (const [did, profile] of mutualsMap.entries()) {
+    profilesMap.set(did, profile);
+  }
 
-  return summaries;
+  // Batch resolve profile metadata in chunks of up to 25 for any missing or incomplete profiles
+  const missingDids = Array.from(allNeededDids).filter((did) => {
+    const p = profilesMap.get(did);
+    return !p || (!p.displayName && !p.avatar);
+  });
+
+  for (let i = 0; i < missingDids.length; i += 25) {
+    const chunk = missingDids.slice(i, i + 25);
+    try {
+      const getProfilesFn = agent.getProfiles
+        ? (chunkDids: string[]) => agent.getProfiles({ actors: chunkDids })
+        : (chunkDids: string[]) => agent.app.bsky.actor.getProfiles({ actors: chunkDids });
+
+      const { data } = await getProfilesFn(chunk);
+      for (const p of data.profiles) {
+        profilesMap.set(p.did, {
+          did: p.did,
+          handle: p.handle,
+          displayName: p.displayName,
+          avatar: p.avatar
+        });
+      }
+    } catch {
+      // Gracefully continue if some profiles cannot be resolved
+    }
+  }
+
+  return sortedEntries.map((entry) => {
+    const blockerProfile = profilesMap.get(entry.did)!;
+    const blockedMutuals = entry.blockedDids.map((bDid) => profilesMap.get(bDid)!);
+
+    return {
+      blocker: blockerProfile,
+      blockedMutuals
+    };
+  });
 }
