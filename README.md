@@ -1,6 +1,6 @@
 # Bluesky Mutual Block Checker
 
-A client-side web application built with TypeScript and Vite that checks for mutual blocks on Bluesky (AT Protocol).
+A client-side web application built with TypeScript and Vite that checks for what mutuals are blocking someone on Bluesky (AT Protocol).
 
 ## Features
 
