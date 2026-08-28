@@ -5,6 +5,7 @@ import {
   fetchAllMutuals,
   findMutualsBlockingTarget,
   findTopBlockersAmongMutuals,
+  resolveActor,
   MutualProfile,
   MutualBlockerSummary
 } from './bsky';
@@ -210,17 +211,18 @@ checkBtn.addEventListener('click', async () => {
   if (!session) return;
 
   let targetDid = selectedTargetDid;
-  if (!targetDid) {
-    const handleVal = targetInput.value.trim().replace(/^@/, '');
-    if (!handleVal) {
-      alert('Please enter a Bluesky username.');
-      return;
-    }
+  const inputVal = targetInput.value.trim().replace(/^@/, '');
+  if (!targetDid && !inputVal) {
+    alert('Please enter a Bluesky username.');
+    return;
+  }
+
+  if (!targetDid && inputVal) {
     try {
       statusContainer.textContent = 'Resolving handle...';
       progressContainer.classList.add('hidden');
-      const resolved = await agent.resolveHandle({ handle: handleVal });
-      targetDid = resolved.data.did;
+      const resolved = await resolveActor(agent, inputVal);
+      targetDid = resolved.did;
     } catch {
       statusContainer.textContent = 'Could not resolve handle. Check spelling.';
       progressContainer.classList.add('hidden');

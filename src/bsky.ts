@@ -25,6 +25,48 @@ export interface MutualBlockerEntry {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * 1. Resolve any handle or DID input to a canonical DID & Profile.
+ */
+export async function resolveActor(
+  agent: Agent,
+  actorInput: string
+): Promise<{ did: string; profile?: AppBskyActorDefs.ProfileViewBasic }> {
+  const cleanInput = actorInput.trim().replace(/^@/, '');
+  if (!cleanInput) {
+    throw new Error('Input handle or DID cannot be empty');
+  }
+
+  // If input is already a DID, resolve profile if possible, otherwise return DID
+  if (cleanInput.startsWith('did:')) {
+    try {
+      const getProfileFn = agent.getProfile
+        ? (actor: string) => agent.getProfile({ actor })
+        : (actor: string) => agent.app.bsky.actor.getProfile({ actor });
+      const res = await getProfileFn(cleanInput);
+      return { did: res.data.did, profile: res.data };
+    } catch {
+      return { did: cleanInput };
+    }
+  }
+
+  // Try agent.getProfile or agent.app.bsky.actor.getProfile
+  try {
+    const getProfileFn = agent.getProfile
+      ? (actor: string) => agent.getProfile({ actor })
+      : (actor: string) => agent.app.bsky.actor.getProfile({ actor });
+    const res = await getProfileFn(cleanInput);
+    return { did: res.data.did, profile: res.data };
+  } catch {
+    // Fallback to resolveHandle if getProfile fails
+    const resolveHandleFn = agent.resolveHandle
+      ? (handle: string) => agent.resolveHandle({ handle })
+      : (handle: string) => agent.com.atproto.identity.resolveHandle({ handle });
+    const res = await resolveHandleFn(cleanInput);
+    return { did: res.data.did };
+  }
+}
+
 // Helper: Process array concurrently with a concurrency limit
 export async function mapConcurrent<T, R>(
   items: T[],
@@ -165,51 +207,34 @@ export async function fetchAllMutuals(
   return mutuals;
 }
 
-// 3. Check which mutuals block the target DID
+// 3. Check which mutuals block the target (DID or handle)
 export async function findMutualsBlockingTarget(
   agent: Agent,
-  targetDid: string,
+  targetInput: string,
   mutuals: MutualProfile[],
   onProgress?: (progress: BlockCheckProgress) => void,
   concurrency = 5
 ): Promise<MutualProfile[]> {
-  const blockingMutuals: MutualProfile[] = [];
-  const BATCH_SIZE = 30; // max supported by getRelationships
-
-  const batches: MutualProfile[][] = [];
-  for (let i = 0; i < mutuals.length; i += BATCH_SIZE) {
-    batches.push(mutuals.slice(i, i + BATCH_SIZE));
+  let targetDid = targetInput;
+  try {
+    const resolved = await resolveActor(agent, targetInput);
+    targetDid = resolved.did;
+  } catch {
+    // Fall back to targetInput if resolution fails
   }
 
-  let scanned = 0;
+  const blockingMutuals: MutualProfile[] = [];
+  let scannedCount = 0;
 
-  await mapConcurrent(batches, concurrency, async (batch) => {
-    const others = batch.map((m) => m.did);
-
-    try {
-      const res = await agent.app.bsky.graph.getRelationships({
-        actor: targetDid,
-        others
-      });
-
-      const relationships = res.data.relationships as AppBskyGraphDefs.Relationship[];
-      for (const rel of relationships) {
-        // blockedBy indicates the 'other' account (the mutual) has blocked the target
-        if (rel.blockedBy) {
-          const mutual = batch.find((m) => m.did === rel.did);
-          if (mutual) {
-            blockingMutuals.push(mutual);
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching relationship batch:', err);
+  await mapConcurrent(mutuals, concurrency, async (mutual) => {
+    const blocks = await fetchAllUserBlocks(agent, mutual.did);
+    if (blocks.includes(targetDid)) {
+      blockingMutuals.push(mutual);
     }
-
-    scanned += batch.length;
+    scannedCount++;
     if (onProgress) {
       onProgress({
-        scanned: Math.min(scanned, mutuals.length),
+        scanned: scannedCount,
         total: mutuals.length
       });
     }
