@@ -238,9 +238,7 @@ checkBtn.addEventListener('click', async () => {
     cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
       statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
     });
-    if (cachedMutuals) {
-      setCachedMutualsInStorage(session.sub, cachedMutuals);
-    }
+    setCachedMutualsInStorage(session.sub, cachedMutuals);
   }
 
   if (cachedMutuals.length === 0) {
