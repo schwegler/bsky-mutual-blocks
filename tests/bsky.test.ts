@@ -7,6 +7,7 @@ import {
   fetchAllMutuals,
   findMutualsBlockingTarget,
   findTopBlockersAmongMutuals,
+  findMutualsBlockingMutuals,
   MutualProfile
 } from '../src/bsky';
 
@@ -138,8 +139,8 @@ describe('bsky module', () => {
       expect(blocks).toEqual([]);
     });
 
-    it('handles listRecords network / rate-limit exception gracefully', async () => {
-      const listRecordsMock = vi.fn().mockRejectedValue(new Error('Rate limit'));
+    it('handles listRecords generic exception gracefully', async () => {
+      const listRecordsMock = vi.fn().mockRejectedValue(new Error('Generic failure'));
 
       const mockAgent = {
         com: {
@@ -153,6 +154,74 @@ describe('bsky module', () => {
 
       const blocks = await fetchAllUserBlocks(mockAgent, 'did:plc:user5');
       expect(blocks).toEqual([]);
+    });
+
+    it('retries on 429 status rate limit errors with exponential backoff and succeeds on retry', async () => {
+      vi.useFakeTimers();
+      const rateLimitErr = { status: 429, message: 'Too Many Requests' };
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const listRecordsMock = vi
+        .fn()
+        .mockRejectedValueOnce(rateLimitErr)
+        .mockResolvedValueOnce({
+          data: {
+            cursor: undefined,
+            records: [{ value: { subject: 'did:plc:blockedRetry' } }]
+          }
+        });
+
+      const mockAgent = {
+        com: {
+          atproto: {
+            repo: {
+              listRecords: listRecordsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const blocksPromise = fetchAllUserBlocks(mockAgent, 'did:plc:rateLimitedUser', 3);
+      await vi.runAllTimersAsync();
+      const blocks = await blocksPromise;
+
+      expect(listRecordsMock).toHaveBeenCalledTimes(2);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[429] Rate limit on did:plc:rateLimitedUser. Retrying in 2000ms...'
+      );
+      expect(blocks).toEqual(['did:plc:blockedRetry']);
+
+      consoleWarnSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it('retries on Rate Limit error message, exceeding maxRetries and exiting gracefully', async () => {
+      vi.useFakeTimers();
+      const rateLimitErr = new Error('Rate Limit exceeded');
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const listRecordsMock = vi.fn().mockRejectedValue(rateLimitErr);
+
+      const mockAgent = {
+        com: {
+          atproto: {
+            repo: {
+              listRecords: listRecordsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const blocksPromise = fetchAllUserBlocks(mockAgent, 'did:plc:maxRetriesUser', 2);
+      await vi.runAllTimersAsync();
+      const blocks = await blocksPromise;
+
+      expect(listRecordsMock).toHaveBeenCalledTimes(2);
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+      expect(blocks).toEqual([]);
+
+      consoleWarnSpy.mockRestore();
+      vi.useRealTimers();
     });
   });
 
@@ -631,6 +700,96 @@ describe('bsky module', () => {
         did: 'did:plc:missing',
         handle: 'missing.bsky.social'
       });
+    });
+  });
+
+  describe('findMutualsBlockingMutuals', () => {
+    it('returns empty array if fetchAllMutuals finds 0 mutuals', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: { cursor: undefined, follows: [] }
+      });
+      const mockAgent = {
+        app: { bsky: { graph: { getFollows: getFollowsMock } } }
+      } as unknown as Agent;
+
+      const results = await findMutualsBlockingMutuals(mockAgent, 'did:plc:user');
+      expect(results).toEqual([]);
+    });
+
+    it('scans mutuals, calls progress callback, and returns entries sorted with count', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: {
+          cursor: undefined,
+          follows: [
+            {
+              did: 'did:plc:m1',
+              handle: 'm1.bsky.social',
+              viewer: { followedBy: 'at://follow1' }
+            },
+            {
+              did: 'did:plc:m2',
+              handle: 'm2.bsky.social',
+              viewer: { followedBy: 'at://follow2' }
+            }
+          ]
+        }
+      });
+
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:m1') {
+          return Promise.resolve({
+            data: { cursor: undefined, records: [{ value: { subject: 'did:plc:m2' } }] }
+          });
+        }
+        return Promise.resolve({ data: { cursor: undefined, records: [] } });
+      });
+
+      const mockAgent = {
+        app: { bsky: { graph: { getFollows: getFollowsMock } } },
+        com: { atproto: { repo: { listRecords: listRecordsMock } } }
+      } as unknown as Agent;
+
+      const progressCallback = vi.fn();
+      const results = await findMutualsBlockingMutuals(
+        mockAgent,
+        'did:plc:user',
+        5,
+        progressCallback
+      );
+
+      expect(progressCallback).toHaveBeenCalledWith(2, 2);
+      expect(results).toEqual([
+        {
+          blocker: { did: 'did:plc:m1', handle: 'm1.bsky.social', displayName: undefined, avatar: undefined },
+          blockedMutuals: [{ did: 'did:plc:m2', handle: 'm2.bsky.social', displayName: undefined, avatar: undefined }],
+          count: 1
+        }
+      ]);
+    });
+
+    it('works without progress callback provided', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: {
+          cursor: undefined,
+          follows: [
+            {
+              did: 'did:plc:m1',
+              handle: 'm1.bsky.social',
+              viewer: { followedBy: 'at://follow1' }
+            }
+          ]
+        }
+      });
+      const listRecordsMock = vi.fn().mockResolvedValue({
+        data: { cursor: undefined, records: [] }
+      });
+      const mockAgent = {
+        app: { bsky: { graph: { getFollows: getFollowsMock } } },
+        com: { atproto: { repo: { listRecords: listRecordsMock } } }
+      } as unknown as Agent;
+
+      const results = await findMutualsBlockingMutuals(mockAgent, 'did:plc:user');
+      expect(results).toEqual([]);
     });
   });
 });

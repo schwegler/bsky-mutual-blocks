@@ -17,6 +17,14 @@ export interface MutualBlockerSummary {
   blockedMutuals: MutualProfile[];
 }
 
+export interface MutualBlockerEntry {
+  blocker: MutualProfile;
+  blockedMutuals: MutualProfile[];
+  count: number;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Helper: Process array concurrently with a concurrency limit
 export async function mapConcurrent<T, R>(
   items: T[],
@@ -41,46 +49,65 @@ export async function mapConcurrent<T, R>(
 }
 
 /**
- * Fetch all direct block records for a single user using full pagination.
+ * Fetch all direct block records for a single user using full pagination with 429 retry backoff.
  */
-export async function fetchAllUserBlocks(agent: Agent, repoDid: string): Promise<string[]> {
+export async function fetchAllUserBlocks(
+  agent: Agent,
+  repoDid: string,
+  maxRetries = 3
+): Promise<string[]> {
   const blockedDids: string[] = [];
   let cursor: string | undefined = undefined;
 
   do {
-    try {
-      const api = agent.com?.atproto?.repo
-        ? agent.com.atproto.repo
-        : agent.api?.com?.atproto?.repo
-        ? agent.api.com.atproto.repo
-        : null;
+    let attempts = 0;
+    let success = false;
 
-      if (!api || typeof api.listRecords !== 'function') {
-        break;
-      }
+    while (attempts < maxRetries && !success) {
+      try {
+        const api = agent.com?.atproto?.repo
+          ? agent.com.atproto.repo
+          : agent.api?.com?.atproto?.repo
+          ? agent.api.com.atproto.repo
+          : null;
 
-      const response = await api.listRecords({
-        repo: repoDid,
-        collection: 'app.bsky.graph.block',
-        limit: 100,
-        cursor
-      });
+        if (!api || typeof api.listRecords !== 'function') {
+          return blockedDids;
+        }
 
-      if (!response?.data?.records) {
-        break;
-      }
+        const response = await api.listRecords({
+          repo: repoDid,
+          collection: 'app.bsky.graph.block',
+          limit: 100,
+          cursor
+        });
 
-      for (const record of response.data.records) {
-        const subject = (record.value as { subject?: string })?.subject;
-        if (subject) {
-          blockedDids.push(subject);
+        if (!response?.data?.records) {
+          return blockedDids;
+        }
+
+        for (const record of response.data.records) {
+          const subject = (record.value as { subject?: string })?.subject;
+          if (subject) {
+            blockedDids.push(subject);
+          }
+        }
+
+        cursor = response.data.cursor;
+        success = true;
+      } catch (err: any) {
+        attempts++;
+        const isRateLimit = err?.status === 429 || err?.message?.includes('Rate Limit');
+
+        if (isRateLimit && attempts < maxRetries) {
+          const waitMs = Math.pow(2, attempts) * 1000;
+          console.warn(`[429] Rate limit on ${repoDid}. Retrying in ${waitMs}ms...`);
+          await sleep(waitMs);
+        } else {
+          // If deactivated, deleted, private repo, or max retries exceeded, safely exit
+          return blockedDids;
         }
       }
-
-      cursor = response.data.cursor;
-    } catch {
-      // Handle account repos that are private, deleted, deactivated, or rate-limited
-      break;
     }
   } while (cursor);
 
@@ -196,7 +223,7 @@ export async function findTopBlockersAmongMutuals(
   agent: Agent,
   mutuals: MutualProfile[],
   onProgress?: (progress: BlockCheckProgress) => void,
-  concurrency = 12
+  concurrency = 5
 ): Promise<MutualBlockerSummary[]> {
   const mutualsMap = new Map<string, MutualProfile>();
   for (const m of mutuals) {
@@ -288,4 +315,30 @@ export async function findTopBlockersAmongMutuals(
       blockedMutuals
     };
   });
+}
+
+/**
+ * Scan mutuals blocking other mutuals, sorted by most blocks (end-to-end helper).
+ */
+export async function findMutualsBlockingMutuals(
+  agent: Agent,
+  userDid: string,
+  concurrency = 5,
+  onProgress?: (scanned: number, total: number) => void
+): Promise<MutualBlockerEntry[]> {
+  const mutuals = await fetchAllMutuals(agent, userDid);
+  if (mutuals.length === 0) return [];
+
+  const summaries = await findTopBlockersAmongMutuals(
+    agent,
+    mutuals,
+    onProgress ? (p) => onProgress(p.scanned, p.total) : undefined,
+    concurrency
+  );
+
+  return summaries.map((s) => ({
+    blocker: s.blocker,
+    blockedMutuals: s.blockedMutuals,
+    count: s.blockedMutuals.length
+  }));
 }
