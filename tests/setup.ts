@@ -48,6 +48,8 @@ const HTML_FIXTURE = `
               <ul id="suggestions-list" class="suggestions-dropdown hidden"></ul>
             </div>
             <button id="check-btn">Check Mutual Blocks</button>
+            <div class="divider-text">or</div>
+            <button id="scan-mutuals-btn" class="btn-secondary">Find Top Blockers Among Mutuals</button>
           </div>
 
           <div id="status-container" class="status-msg"></div>
