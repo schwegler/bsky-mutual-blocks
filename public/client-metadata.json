@@ -1,8 +1,8 @@
 {
-  "client_id": "https://bsky-mutual-blocks.schwegler.workers.dev/client-metadata.json",
+  "client_id": "https://bsky-mutual-blocks.pages.dev/client-metadata.json",
   "client_name": "Bluesky Mutual Block Checker",
-  "client_uri": "https://bsky-mutual-blocks.schwegler.workers.dev/",
-  "redirect_uris": ["https://bsky-mutual-blocks.schwegler.workers.dev/"],
+  "client_uri": "https://bsky-mutual-blocks.pages.dev/",
+  "redirect_uris": ["https://bsky-mutual-blocks.pages.dev/"],
   "scope": "atproto transition:generic",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
