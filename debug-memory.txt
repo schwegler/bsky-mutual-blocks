@@ -1,1 +1,0 @@
-In AT Protocol, block records in 'app.bsky.graph.block' store subject DIDs rather than handles. Target handles must be resolved to canonical DIDs using resolveActor / getProfile before checking repository block records.
