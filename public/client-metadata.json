@@ -1,0 +1,11 @@
+{
+  "client_id": "http://127.0.0.1:5173/client-metadata.json",
+  "client_name": "Bluesky Mutual Block Checker",
+  "client_uri": "http://127.0.0.1:5173",
+  "redirect_uris": ["http://127.0.0.1:5173/"],
+  "scope": "atproto transition:generic",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web"
+}
