@@ -101,18 +101,49 @@ export async function fetchAllUserBlocks(
   const blockedDids: string[] = [];
   let cursor: string | undefined = undefined;
 
+  let pdsUrl: string | null = null;
+  try {
+    if (repoDid.startsWith('did:plc:')) {
+      const res = await fetch(`https://plc.directory/${repoDid}`);
+      if (res.ok) {
+        const doc = await res.json();
+        const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
+        if (pdsService?.serviceEndpoint) {
+          pdsUrl = pdsService.serviceEndpoint;
+        }
+      }
+    } else if (repoDid.startsWith('did:web:')) {
+      const domain = repoDid.replace('did:web:', '');
+      const res = await fetch(`https://${domain}/.well-known/did.json`);
+      if (res.ok) {
+        const doc = await res.json();
+        const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
+        if (pdsService?.serviceEndpoint) {
+          pdsUrl = pdsService.serviceEndpoint;
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`Failed to resolve PDS for ${repoDid}`, err);
+  }
+
+  if (!pdsUrl) {
+    return blockedDids;
+  }
+
+  const pdsAgent = new Agent(pdsUrl);
+  const api = pdsAgent.com?.atproto?.repo
+    ? pdsAgent.com.atproto.repo
+    : pdsAgent.api?.com?.atproto?.repo
+    ? pdsAgent.api.com.atproto.repo
+    : null;
+
   do {
     let attempts = 0;
     let success = false;
 
     while (attempts < maxRetries && !success) {
       try {
-        const api = agent.com?.atproto?.repo
-          ? agent.com.atproto.repo
-          : agent.api?.com?.atproto?.repo
-          ? agent.api.com.atproto.repo
-          : null;
-
         if (!api || typeof api.listRecords !== 'function') {
           return blockedDids;
         }
