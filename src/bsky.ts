@@ -1,4 +1,4 @@
-import { Agent, AppBskyActorDefs, AppBskyGraphDefs } from '@atproto/api';
+import { Agent, AppBskyActorDefs } from '@atproto/api';
 
 export interface MutualProfile {
   did: string;

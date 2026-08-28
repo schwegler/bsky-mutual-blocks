@@ -230,6 +230,8 @@ checkBtn.addEventListener('click', async () => {
     }
   }
 
+  const finalTargetDid: string = targetDid!;
+
   resultsContainer.innerHTML = '';
 
   // 1. Fetch mutuals if not cached
@@ -263,7 +265,7 @@ checkBtn.addEventListener('click', async () => {
   try {
     const blockers = await findMutualsBlockingTarget(
       agent,
-      targetDid,
+      finalTargetDid,
       cachedMutuals,
       ({ scanned, total }) => {
         statusContainer.textContent = `Checked ${scanned} / ${total} mutuals...`;
