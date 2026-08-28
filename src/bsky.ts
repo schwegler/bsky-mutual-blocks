@@ -31,7 +31,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function resolveActor(
   agent: Agent,
   actorInput: string
-): Promise<{ did: string; profile?: AppBskyActorDefs.ProfileViewBasic }> {
+): Promise<{ did: string; profile?: AppBskyActorDefs.ProfileViewBasic | AppBskyActorDefs.ProfileViewDetailed | any }> {
   const cleanInput = actorInput.trim().replace(/^@/, '');
   if (!cleanInput) {
     throw new Error('Input handle or DID cannot be empty');
@@ -44,7 +44,7 @@ export async function resolveActor(
         ? (actor: string) => agent.getProfile({ actor })
         : (actor: string) => agent.app.bsky.actor.getProfile({ actor });
       const res = await getProfileFn(cleanInput);
-      return { did: res.data.did, profile: res.data };
+      return { did: res.data.did, profile: res.data as any };
     } catch {
       return { did: cleanInput };
     }
@@ -56,7 +56,7 @@ export async function resolveActor(
       ? (actor: string) => agent.getProfile({ actor })
       : (actor: string) => agent.app.bsky.actor.getProfile({ actor });
     const res = await getProfileFn(cleanInput);
-    return { did: res.data.did, profile: res.data };
+    return { did: res.data.did, profile: res.data as any };
   } catch {
     // Fallback to resolveHandle if getProfile fails
     const resolveHandleFn = agent.resolveHandle
@@ -94,7 +94,6 @@ export async function mapConcurrent<T, R>(
  * Fetch all direct block records for a single user using full pagination with 429 retry backoff.
  */
 export async function fetchAllUserBlocks(
-  agent: Agent,
   repoDid: string,
   maxRetries = 3
 ): Promise<string[]> {
@@ -259,7 +258,7 @@ export async function findMutualsBlockingTarget(
   let scannedCount = 0;
 
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
-    const blocks = await fetchAllUserBlocks(agent, mutual.did);
+    const blocks = await fetchAllUserBlocks(mutual.did);
     const isBlocked = blocks.some((b) => b === targetDid);
 
     if (isBlocked) {
@@ -295,7 +294,7 @@ export async function findTopBlockersAmongMutuals(
 
   // Fetch all blocks concurrently across mutuals
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
-    const blocks = await fetchAllUserBlocks(agent, mutual.did);
+    const blocks = await fetchAllUserBlocks(mutual.did);
     for (const blockedSubject of blocks) {
       const matchedMutual = mutualsMap.get(blockedSubject);
       if (matchedMutual && matchedMutual.did !== mutual.did) {
