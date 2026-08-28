@@ -12,6 +12,41 @@ import { AppBskyActorDefs } from '@atproto/api';
 let cachedMutuals: MutualProfile[] | null = null;
 let selectedTargetDid: string | null = null;
 
+const SESSION_CACHE_KEY_PREFIX = 'bsky_mutuals_cache_';
+
+function getCachedMutualsFromStorage(userDid: string): MutualProfile[] | null {
+  try {
+    const raw = sessionStorage.getItem(`${SESSION_CACHE_KEY_PREFIX}${userDid}`);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.error('Error reading mutuals from sessionStorage', err);
+  }
+  return null;
+}
+
+function setCachedMutualsInStorage(userDid: string, mutuals: MutualProfile[]): void {
+  try {
+    sessionStorage.setItem(`${SESSION_CACHE_KEY_PREFIX}${userDid}`, JSON.stringify(mutuals));
+  } catch (err) {
+    console.error('Error saving mutuals to sessionStorage', err);
+  }
+}
+
+function clearCachedMutualsStorage(): void {
+  try {
+    const keys = Object.keys(sessionStorage);
+    for (const key of keys) {
+      if (key.startsWith(SESSION_CACHE_KEY_PREFIX)) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch (err) {
+    console.error('Error clearing mutuals from sessionStorage', err);
+  }
+}
+
 // DOM Elements
 const authSection = document.getElementById('auth-section')!;
 const loginForm = document.getElementById('login-form') as HTMLFormElement;
@@ -26,6 +61,8 @@ const suggestionsList = document.getElementById('suggestions-list')!;
 const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
 
 const statusContainer = document.getElementById('status-container')!;
+const progressContainer = document.getElementById('progress-container')!;
+const progressBar = document.getElementById('progress-bar') as HTMLProgressElement;
 const resultsContainer = document.getElementById('results-container')!;
 
 async function bootstrap() {
@@ -51,11 +88,17 @@ async function showAppView(userDid: string) {
   authSection.classList.add('hidden');
   appSection.classList.remove('hidden');
 
+  cachedMutuals = getCachedMutualsFromStorage(userDid);
+
   const agent = getAgent();
   try {
     const profile = await agent.getProfile({ actor: userDid });
+    const avatarUrl = profile.data.avatar;
+    const avatarImg = avatarUrl
+      ? `<img src="${avatarUrl}" class="avatar-sm" alt="avatar" />`
+      : `<div class="avatar-sm avatar-placeholder"></div>`;
     userProfileBadge.innerHTML = `
-      <img src="${profile.data.avatar || ''}" class="avatar-sm" alt="avatar" />
+      ${avatarImg}
       <span>@${profile.data.handle}</span>
     `;
   } catch {
@@ -81,6 +124,7 @@ loginForm.addEventListener('submit', async (e) => {
 // Logout handler
 logoutBtn.addEventListener('click', async () => {
   await signOut();
+  clearCachedMutualsStorage();
   cachedMutuals = null;
   selectedTargetDid = null;
   showLoginView();
@@ -119,15 +163,20 @@ function renderSuggestions(actors: AppBskyActorDefs.ProfileViewBasic[]) {
 
   suggestionsList.innerHTML = actors
     .map(
-      (a) => `
+      (a) => {
+        const avatarImg = a.avatar
+          ? `<img src="${a.avatar}" class="avatar-xs" alt="avatar" />`
+          : `<div class="avatar-xs avatar-placeholder"></div>`;
+        return `
       <li data-did="${a.did}" data-handle="${a.handle}">
-        <img src="${a.avatar || ''}" class="avatar-xs" />
+        ${avatarImg}
         <div class="suggestion-info">
-          <span class="name">${a.displayName || a.handle}</span>
-          <span class="handle">@${a.handle}</span>
+          <span class="name">${escapeHtml(a.displayName || a.handle)}</span>
+          <span class="handle">@${escapeHtml(a.handle)}</span>
         </div>
       </li>
-    `
+    `;
+      }
     )
     .join('');
 
@@ -140,6 +189,15 @@ function renderSuggestions(actors: AppBskyActorDefs.ProfileViewBasic[]) {
       suggestionsList.classList.add('hidden');
     });
   });
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 // Run check
@@ -157,10 +215,12 @@ checkBtn.addEventListener('click', async () => {
     }
     try {
       statusContainer.textContent = 'Resolving handle...';
+      progressContainer.classList.add('hidden');
       const resolved = await agent.resolveHandle({ handle: handleVal });
       targetDid = resolved.data.did;
     } catch {
       statusContainer.textContent = 'Could not resolve handle. Check spelling.';
+      progressContainer.classList.add('hidden');
       return;
     }
   }
@@ -169,31 +229,55 @@ checkBtn.addEventListener('click', async () => {
 
   // 1. Fetch mutuals if not cached
   if (!cachedMutuals) {
+    cachedMutuals = getCachedMutualsFromStorage(session.sub);
+  }
+
+  if (!cachedMutuals) {
     statusContainer.textContent = 'Fetching your mutuals list...';
+    progressContainer.classList.add('hidden');
     cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
-      statusContainer.textContent = `Found ${count} mutuals so far...`;
+      statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
     });
+    if (cachedMutuals) {
+      setCachedMutualsInStorage(session.sub, cachedMutuals);
+    }
   }
 
   if (cachedMutuals.length === 0) {
     statusContainer.textContent = 'You have no mutual followers on this account.';
+    progressContainer.classList.add('hidden');
     return;
   }
 
   // 2. Scan mutuals for blocks against target
-  statusContainer.textContent = `Checking ${cachedMutuals.length} mutuals for blocks...`;
-  const blockers = await findMutualsBlockingTarget(
-    agent,
-    targetDid,
-    cachedMutuals,
-    ({ scanned, total }) => {
-      statusContainer.textContent = `Scanning: ${scanned} / ${total} mutuals evaluated...`;
-    }
-  );
+  statusContainer.textContent = `Checked 0 / ${cachedMutuals.length} mutuals...`;
+  progressContainer.classList.remove('hidden');
+  progressBar.max = cachedMutuals.length;
+  progressBar.value = 0;
 
-  statusContainer.textContent = `Scan complete. Found ${blockers.length} mutual(s) blocking @${targetInput.value.trim().replace(/^@/, '')}.`;
+  checkBtn.disabled = true;
 
-  renderResults(blockers);
+  try {
+    const blockers = await findMutualsBlockingTarget(
+      agent,
+      targetDid,
+      cachedMutuals,
+      ({ scanned, total }) => {
+        statusContainer.textContent = `Checked ${scanned} / ${total} mutuals...`;
+        progressBar.max = total;
+        progressBar.value = scanned;
+      }
+    );
+
+    statusContainer.textContent = `Scan complete. Found ${blockers.length} mutual(s) blocking @${targetInput.value.trim().replace(/^@/, '')}.`;
+    renderResults(blockers);
+  } catch (err: any) {
+    console.error('Scan Error:', err);
+    statusContainer.textContent = `Error performing block check: ${err.message || err}`;
+  } finally {
+    checkBtn.disabled = false;
+    progressContainer.classList.add('hidden');
+  }
 });
 
 function renderResults(blockers: MutualProfile[]) {
@@ -205,18 +289,29 @@ function renderResults(blockers: MutualProfile[]) {
   resultsContainer.innerHTML = `
     <ul class="blocker-list">
       ${blockers
-        .map(
-          (b) => `
+        .map((b) => {
+          const profileUrl = `https://bsky.app/profile/${encodeURIComponent(b.handle)}`;
+          const avatarImg = b.avatar
+            ? `<img src="${b.avatar}" class="avatar-md" alt="${escapeHtml(b.handle)} avatar" />`
+            : `<div class="avatar-md avatar-placeholder"></div>`;
+          const displayName = escapeHtml(b.displayName || b.handle);
+          const handle = escapeHtml(b.handle);
+
+          return `
         <li class="blocker-card">
-          <img src="${b.avatar || ''}" class="avatar-md" />
+          <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
+            ${avatarImg}
+          </a>
           <div class="blocker-info">
-            <strong>${b.displayName || b.handle}</strong>
-            <a href="https://bsky.app/profile/${b.handle}" target="_blank" rel="noreferrer">@${b.handle}</a>
+            <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="display-name">
+              <strong>${displayName}</strong>
+            </a>
+            <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${handle}</a>
           </div>
           <span class="badge-block">Blocks Target</span>
         </li>
-      `
-        )
+      `;
+        })
         .join('')}
     </ul>
   `;
