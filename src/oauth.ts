@@ -16,7 +16,7 @@ export async function initOAuth(): Promise<{ session: OAuthSession | null; agent
     clientMetadata: {
       client_id: clientId,
       client_name: 'Bluesky Mutual Block Checker',
-      client_uri: window.location.origin,
+      client_uri: `${window.location.origin}/`,
       redirect_uris: [`${window.location.origin}/`],
       scope: 'atproto transition:generic',
       grant_types: ['authorization_code', 'refresh_token'],
