@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "bsky-mutual-block-checker",
+  "name": "bsky-mutual-blocks",
   "compatibility_date": "2026-08-28",
   "assets": {
     "directory": "./dist",
