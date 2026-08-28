@@ -51,9 +51,21 @@ header h1 {
   font-weight: 500;
 }
 
-.avatar-xs { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
-.avatar-sm { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
-.avatar-md { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
+.avatar-xs { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.avatar-sm { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.avatar-md { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+
+.avatar-placeholder {
+  background-color: #334155;
+  display: inline-block;
+  border-radius: 50%;
+}
+
+.avatar-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
 
 .search-box {
   display: flex;
@@ -149,6 +161,36 @@ button:hover {
   color: #94a3b8;
 }
 
+.progress-container {
+  margin-top: 0.5rem;
+  width: 100%;
+}
+
+progress {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+progress::-webkit-progress-bar {
+  background-color: #1e293b;
+  border-radius: 4px;
+}
+
+progress::-webkit-progress-value {
+  background-color: #38bdf8;
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+progress::-moz-progress-bar {
+  background-color: #38bdf8;
+  border-radius: 4px;
+}
+
 .blocker-list {
   list-style: none;
   padding: 0;
@@ -174,10 +216,24 @@ button:hover {
   flex-direction: column;
 }
 
-.blocker-info a {
+.blocker-info .display-name {
+  color: #f8fafc;
+  text-decoration: none;
+  font-size: 1rem;
+}
+
+.blocker-info .display-name:hover {
+  text-decoration: underline;
+}
+
+.blocker-info .handle-link {
   color: #38bdf8;
   text-decoration: none;
   font-size: 0.85rem;
+}
+
+.blocker-info .handle-link:hover {
+  text-decoration: underline;
 }
 
 .badge-block {
