@@ -24,6 +24,17 @@ export interface MutualBlockerEntry {
   count: number;
 }
 
+export interface MutualBlockedSummary {
+  blocked: MutualProfile;
+  blockedByMutuals: MutualProfile[];
+}
+
+export interface MutualBlockedEntry {
+  blocked: MutualProfile;
+  blockedByMutuals: MutualProfile[];
+  count: number;
+}
+
 /**
  * Cache structure for user block lists.
  */
@@ -420,5 +431,131 @@ export async function findMutualsBlockingMutuals(
     blocker: s.blocker,
     blockedMutuals: s.blockedMutuals,
     count: s.blockedMutuals.length
+  }));
+}
+
+// 5. Find which mutuals are blocked by the most of your other mutuals
+export async function findTopBlockedAmongMutuals(
+  agent: Agent,
+  mutuals: MutualProfile[],
+  onProgress?: (progress: BlockCheckProgress) => void,
+  concurrency = 5
+): Promise<MutualBlockedSummary[]> {
+  const mutualsMap = new Map<string, MutualProfile>();
+  for (const m of mutuals) {
+    mutualsMap.set(m.did, m);
+  }
+
+  // Map to hold DID -> Set of mutual DIDs that block them
+  const blockedMap = new Map<string, Set<string>>();
+  let scannedCount = 0;
+
+  // Fetch all blocks concurrently across mutuals
+  await mapConcurrent(mutuals, concurrency, async (mutual) => {
+    const blocks = await fetchAllUserBlocks(mutual.did);
+    for (const blockedSubject of blocks) {
+      const matchedMutual = mutualsMap.get(blockedSubject);
+      if (matchedMutual && matchedMutual.did !== mutual.did) {
+        let set = blockedMap.get(matchedMutual.did);
+        if (!set) {
+          set = new Set<string>();
+          blockedMap.set(matchedMutual.did, set);
+        }
+        set.add(mutual.did);
+      }
+    }
+    scannedCount++;
+    if (onProgress) {
+      onProgress({
+        scanned: scannedCount,
+        total: mutuals.length
+      });
+    }
+  });
+
+  // Sort by blocker count descending
+  const sortedEntries = Array.from(blockedMap.entries())
+    .map(([did, blockerSet]) => ({
+      did,
+      count: blockerSet.size,
+      blockerDids: Array.from(blockerSet)
+    }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  const allNeededDids = new Set<string>();
+  for (const entry of sortedEntries) {
+    allNeededDids.add(entry.did);
+    for (const bDid of entry.blockerDids) {
+      allNeededDids.add(bDid);
+    }
+  }
+
+  const profilesMap = new Map<string, MutualProfile>();
+  for (const m of mutuals) {
+    profilesMap.set(m.did, m);
+  }
+
+  // Batch resolve profile metadata in chunks of up to 25 for any missing or incomplete profiles
+  const missingDids = Array.from(allNeededDids).filter((did) => {
+    const p = profilesMap.get(did);
+    return !p || (!p.displayName && !p.avatar);
+  });
+
+  for (let i = 0; i < missingDids.length; i += 25) {
+    const chunk = missingDids.slice(i, i + 25);
+    try {
+      const getProfilesFn = agent.getProfiles
+        ? (chunkDids: string[]) => agent.getProfiles({ actors: chunkDids })
+        : (chunkDids: string[]) => agent.app.bsky.actor.getProfiles({ actors: chunkDids });
+
+      const { data } = await getProfilesFn(chunk);
+      for (const p of data.profiles) {
+        profilesMap.set(p.did, {
+          did: p.did,
+          handle: p.handle,
+          displayName: p.displayName,
+          avatar: p.avatar
+        });
+      }
+    } catch {
+      // Gracefully continue if some profiles cannot be resolved
+    }
+  }
+
+  return sortedEntries.map((entry) => {
+    const blockedProfile = profilesMap.get(entry.did)!;
+    const blockedByMutuals = entry.blockerDids.map((bDid) => profilesMap.get(bDid)!);
+
+    return {
+      blocked: blockedProfile,
+      blockedByMutuals
+    };
+  });
+}
+
+/**
+ * Scan mutuals blocked by other mutuals, sorted by most blockers (end-to-end helper).
+ */
+export async function findMutualsBlockedByMutuals(
+  agent: Agent,
+  userDid: string,
+  concurrency = 5,
+  onProgress?: (scanned: number, total: number) => void
+): Promise<MutualBlockedEntry[]> {
+  const mutuals = await fetchAllMutuals(agent, userDid);
+  if (mutuals.length === 0) return [];
+
+  const summaries = await findTopBlockedAmongMutuals(
+    agent,
+    mutuals,
+    onProgress ? (p) => onProgress(p.scanned, p.total) : undefined,
+    concurrency
+  );
+
+  return summaries.map((s) => ({
+    blocked: s.blocked,
+    blockedByMutuals: s.blockedByMutuals,
+    count: s.blockedByMutuals.length
   }));
 }

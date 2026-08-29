@@ -20,6 +20,7 @@ const mockSearchActorsTypeahead = vi.fn();
 const mockFetchAllMutuals = vi.fn();
 const mockFindMutualsBlockingTarget = vi.fn();
 const mockFindTopBlockersAmongMutuals = vi.fn();
+const mockFindTopBlockedAmongMutuals = vi.fn();
 const mockResolveActor = vi.fn();
 
 vi.mock('../src/bsky', () => ({
@@ -27,6 +28,7 @@ vi.mock('../src/bsky', () => ({
   fetchAllMutuals: (...args: any[]) => mockFetchAllMutuals(...args),
   findMutualsBlockingTarget: (...args: any[]) => mockFindMutualsBlockingTarget(...args),
   findTopBlockersAmongMutuals: (...args: any[]) => mockFindTopBlockersAmongMutuals(...args),
+  findTopBlockedAmongMutuals: (...args: any[]) => mockFindTopBlockedAmongMutuals(...args),
   resolveActor: (...args: any[]) => mockResolveActor(...args)
 }));
 
@@ -828,6 +830,186 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', 'String failure');
+      expect(statusContainer.textContent).toBe('Error: String failure');
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('scan top blocked button workflow', () => {
+    it('returns early if getSession() returns null', async () => {
+      mockInitOAuth.mockResolvedValue({ session: null, agent: null });
+      mockGetSession.mockReturnValue(null);
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      scanTopBlockedBtn.click();
+
+      expect(mockFindTopBlockedAmongMutuals).not.toHaveBeenCalled();
+    });
+
+    it('handles scenario where cached mutuals is empty array', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([]));
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      const statusContainer = document.getElementById('status-container')!;
+
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(statusContainer.textContent).toBe('You have no mutual followers on this account.');
+    });
+
+    it('fetches mutuals when uncached, scans top blocked mutuals, renders list, and handles toggle expansion (with/without avatar & singular/plural)', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const mockAgent = {
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
+      };
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue(mockAgent);
+
+      const mutualList = [
+        { did: 'did:plc:m1', handle: 'm1.bsky.social', displayName: '<Blocked 1>', avatar: 'http://m1.jpg' },
+        { did: 'did:plc:m2', handle: 'm2.bsky.social', displayName: null, avatar: null },
+        { did: 'did:plc:m3', handle: 'm3.bsky.social', displayName: 'M3', avatar: 'http://m3.jpg' }
+      ];
+
+      mockFetchAllMutuals.mockImplementation(async (_agent, _sub, onProgress) => {
+        if (onProgress) onProgress(3);
+        return mutualList;
+      });
+
+      const summaries = [
+        {
+          blocked: mutualList[0],
+          blockedByMutuals: [mutualList[1], mutualList[2]]
+        },
+        {
+          blocked: mutualList[1],
+          blockedByMutuals: [mutualList[2]]
+        }
+      ];
+
+      mockFindTopBlockedAmongMutuals.mockImplementation(async (_agent, _mutuals, onProgress) => {
+        if (onProgress) onProgress({ scanned: 3, total: 3 });
+        return summaries;
+      });
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      const statusContainer = document.getElementById('status-container')!;
+      const resultsContainer = document.getElementById('results-container')!;
+
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFetchAllMutuals).toHaveBeenCalled();
+      expect(mockFindTopBlockedAmongMutuals).toHaveBeenCalled();
+      expect(statusContainer.textContent).toBe('Scan complete. Found 2 mutual(s) blocked by other mutuals.');
+
+      expect(resultsContainer.innerHTML).toContain('mutual-blocker-card');
+      expect(resultsContainer.innerHTML).toContain('&lt;Blocked 1&gt;');
+
+      const toggleBtn0 = document.getElementById('blocked-toggle-btn-0') as HTMLButtonElement;
+      const container0 = document.getElementById('blocked-by-container-0') as HTMLElement;
+
+      expect(container0.classList.contains('hidden')).toBe(true);
+      expect(toggleBtn0.innerHTML).toContain('Blocked by 2 mutuals');
+
+      // Expand container 0
+      toggleBtn0.click();
+      expect(container0.classList.contains('hidden')).toBe(false);
+      expect(toggleBtn0.innerHTML).toContain('Blocked by 2 mutuals');
+
+      // Collapse container 0
+      toggleBtn0.click();
+      expect(container0.classList.contains('hidden')).toBe(true);
+
+      // Click toggleBtn1 to test false branch in isHidden when expanding singular mutual
+      const toggleBtn1 = document.getElementById('blocked-toggle-btn-1') as HTMLButtonElement;
+      const container1 = document.getElementById('blocked-by-container-1') as HTMLElement;
+      expect(toggleBtn1.innerHTML).toContain('Blocked by 1 mutual');
+      toggleBtn1.click();
+      expect(container1.classList.contains('hidden')).toBe(false);
+      toggleBtn1.click();
+      expect(container1.classList.contains('hidden')).toBe(true);
+    });
+
+    it('renders empty result message when no mutuals are blocked by other mutuals', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const mockAgent = {
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
+      };
+
+      sessionStorage.setItem(
+        'bsky_mutuals_cache_did:plc:user123',
+        JSON.stringify([{ did: 'did:plc:m1', handle: 'm1.bsky.social' }])
+      );
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue(mockAgent);
+
+      mockFindTopBlockedAmongMutuals.mockResolvedValue([]);
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      const resultsContainer = document.getElementById('results-container')!;
+
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(resultsContainer.innerHTML).toContain(
+        'None of your mutuals are blocked by any of your other mutuals.'
+      );
+    });
+
+    it('handles top blocked scan error gracefully in catch block (Error object & non-Error object)', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockSession = { sub: 'did:plc:user123' };
+      const mockAgent = {
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
+      };
+
+      sessionStorage.setItem(
+        'bsky_mutuals_cache_did:plc:user123',
+        JSON.stringify([{ did: 'did:plc:m1', handle: 'm1.bsky.social' }])
+      );
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue(mockAgent);
+
+      mockFindTopBlockedAmongMutuals.mockRejectedValueOnce(new Error('API failure'));
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      const statusContainer = document.getElementById('status-container')!;
+
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Top Blocked Scan Error:', expect.any(Error));
+      expect(statusContainer.textContent).toBe('Error: API failure');
+
+      // Test string error rejection
+      mockFindTopBlockedAmongMutuals.mockRejectedValueOnce('String failure');
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Top Blocked Scan Error:', 'String failure');
       expect(statusContainer.textContent).toBe('Error: String failure');
 
       consoleErrorSpy.mockRestore();

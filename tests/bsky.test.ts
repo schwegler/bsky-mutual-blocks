@@ -10,6 +10,8 @@ import {
   findMutualsBlockingTarget,
   findTopBlockersAmongMutuals,
   findMutualsBlockingMutuals,
+  findTopBlockedAmongMutuals,
+  findMutualsBlockedByMutuals,
   MutualProfile
 } from '../src/bsky';
 
@@ -969,6 +971,307 @@ afterEach(() => {
       } as unknown as Agent;
 
       const results = await findMutualsBlockingMutuals(mockAgent, 'did:plc:user');
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('findTopBlockedAmongMutuals', () => {
+    it('aggregates blocks received by mutuals, sorts by blocker count descending, and reports progress', async () => {
+      const m1: MutualProfile = { did: 'did:plc:m1', handle: 'm1.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:m2', handle: 'm2.bsky.social' };
+      const m3: MutualProfile = { did: 'did:plc:m3', handle: 'm3.bsky.social' };
+
+      const mutuals = [m1, m2, m3];
+
+      // m1 blocks m2 and m3 (and non-mutual did:plc:nonmutual)
+      // m2 blocks m3
+      // m3 blocks nobody
+      // Result for most blocked:
+      // m3 is blocked by [m1, m2] -> count 2
+      // m2 is blocked by [m1] -> count 1
+      // m1 is blocked by [] -> 0 (filtered out)
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:m1') {
+          return Promise.resolve({
+            data: {
+              cursor: undefined,
+              records: [
+                { value: { subject: 'did:plc:m2' } },
+                { value: { subject: 'did:plc:m3' } },
+                { value: { subject: 'did:plc:m1' } }, // Self block filter
+                { value: { subject: 'did:plc:nonmutual' } }
+              ]
+            }
+          });
+        }
+        if (repo === 'did:plc:m2') {
+          return Promise.resolve({
+            data: {
+              cursor: undefined,
+              records: [{ value: { subject: 'did:plc:m3' } }]
+            }
+          });
+        }
+        return Promise.resolve({
+          data: {
+            cursor: undefined,
+            records: []
+          }
+        });
+      });
+
+      const mockAgent = {
+        com: {
+          atproto: {
+            repo: {
+              listRecords: listRecordsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const progressCallback = vi.fn();
+      const summaries = await findTopBlockedAmongMutuals(mockAgent, mutuals, progressCallback);
+
+      expect(progressCallback).toHaveBeenCalledWith({ scanned: expect.any(Number), total: 3 });
+
+      expect(summaries.length).toBe(2);
+      expect(summaries[0].blocked).toEqual(m3);
+      expect(summaries[0].blockedByMutuals).toHaveLength(2);
+      expect(summaries[0].blockedByMutuals).toEqual(expect.arrayContaining([m1, m2]));
+
+      expect(summaries[1].blocked).toEqual(m2);
+      expect(summaries[1].blockedByMutuals).toHaveLength(1);
+      expect(summaries[1].blockedByMutuals).toEqual([m1]);
+    });
+
+    it('works without onProgress callback and handles profile resolution for missing profiles', async () => {
+      const m1: MutualProfile = { did: 'did:plc:m1', handle: 'm1.bsky.social' };
+
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:m1') {
+          return Promise.resolve({
+            data: {
+              cursor: undefined,
+              records: [{ value: { subject: 'did:plc:m2' } }]
+            }
+          });
+        }
+        return Promise.resolve({ data: { cursor: undefined, records: [] } });
+      });
+
+      const getProfilesMock = vi.fn().mockResolvedValue({
+        data: {
+          profiles: [
+            {
+              did: 'did:plc:m2',
+              handle: 'm2.bsky.social',
+              displayName: 'M2 Resolved Name',
+              avatar: 'http://m2.avatar'
+            }
+          ]
+        }
+      });
+
+      const mockAgent = {
+        com: {
+          atproto: {
+            repo: {
+              listRecords: listRecordsMock
+            }
+          }
+        },
+        getProfiles: getProfilesMock
+      } as unknown as Agent;
+
+      const summaries = await findTopBlockedAmongMutuals(mockAgent, [
+        m1,
+        { did: 'did:plc:m2', handle: 'm2.bsky.social' }
+      ]);
+      expect(summaries.length).toBe(1);
+      expect(summaries[0].blocked).toEqual({
+        did: 'did:plc:m2',
+        handle: 'm2.bsky.social',
+        displayName: 'M2 Resolved Name',
+        avatar: 'http://m2.avatar'
+      });
+      expect(summaries[0].blockedByMutuals[0]).toEqual(m1);
+    });
+
+    it('falls back to default fallback objects when profile resolution returns no profile data', async () => {
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:blockerX') {
+          return Promise.resolve({
+            data: { cursor: undefined, records: [{ value: { subject: 'did:plc:blockedY' } }] }
+          });
+        }
+        return Promise.resolve({ data: { cursor: undefined, records: [] } });
+      });
+
+      const getProfilesMock = vi.fn().mockResolvedValue({
+        data: { profiles: [] }
+      });
+
+      const mockAgent = {
+        com: {
+          atproto: {
+            repo: {
+              listRecords: listRecordsMock
+            }
+          }
+        },
+        getProfiles: getProfilesMock
+      } as unknown as Agent;
+
+      const summaries = await findTopBlockedAmongMutuals(mockAgent, [
+        { did: 'did:plc:blockerX', handle: 'blockerX.bsky.social' },
+        { did: 'did:plc:blockedY', handle: 'blockedY.bsky.social' }
+      ]);
+
+      expect(summaries.length).toBe(1);
+      expect(summaries[0].blocked).toEqual({
+        did: 'did:plc:blockedY',
+        handle: 'blockedY.bsky.social'
+      });
+      expect(summaries[0].blockedByMutuals[0]).toEqual({
+        did: 'did:plc:blockerX',
+        handle: 'blockerX.bsky.social'
+      });
+    });
+
+    it('falls back to agent.app.bsky.actor.getProfiles if agent.getProfiles is absent and handles profile fetch errors gracefully', async () => {
+      const m1: MutualProfile = { did: 'did:plc:m1', handle: 'm1.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:missing', handle: 'missing.bsky.social' };
+
+      const mutuals = [m1, m2];
+
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:m1') {
+          return Promise.resolve({
+            data: {
+              cursor: undefined,
+              records: [{ value: { subject: 'did:plc:missing' } }]
+            }
+          });
+        }
+        return Promise.resolve({ data: { cursor: undefined, records: [] } });
+      });
+
+      const getProfilesMock = vi.fn().mockRejectedValue(new Error('Profile resolution error'));
+
+      const mockAgent = {
+        com: {
+          atproto: {
+            repo: {
+              listRecords: listRecordsMock
+            }
+          }
+        },
+        app: {
+          bsky: {
+            actor: {
+              getProfiles: getProfilesMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const summaries = await findTopBlockedAmongMutuals(mockAgent, mutuals);
+
+      expect(summaries.length).toBe(1);
+      expect(summaries[0].blocked).toEqual({
+        did: 'did:plc:missing',
+        handle: 'missing.bsky.social'
+      });
+    });
+  });
+
+  describe('findMutualsBlockedByMutuals', () => {
+    it('returns empty array if fetchAllMutuals finds 0 mutuals', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: { cursor: undefined, follows: [] }
+      });
+      const mockAgent = {
+        app: { bsky: { graph: { getFollows: getFollowsMock } } }
+      } as unknown as Agent;
+
+      const results = await findMutualsBlockedByMutuals(mockAgent, 'did:plc:user');
+      expect(results).toEqual([]);
+    });
+
+    it('scans mutuals, calls progress callback, and returns entries sorted with count', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: {
+          cursor: undefined,
+          follows: [
+            {
+              did: 'did:plc:m1',
+              handle: 'm1.bsky.social',
+              viewer: { followedBy: 'at://follow1' }
+            },
+            {
+              did: 'did:plc:m2',
+              handle: 'm2.bsky.social',
+              viewer: { followedBy: 'at://follow2' }
+            }
+          ]
+        }
+      });
+
+      const listRecordsMock = vi.fn().mockImplementation(({ repo }) => {
+        if (repo === 'did:plc:m1') {
+          return Promise.resolve({
+            data: { cursor: undefined, records: [{ value: { subject: 'did:plc:m2' } }] }
+          });
+        }
+        return Promise.resolve({ data: { cursor: undefined, records: [] } });
+      });
+
+      const mockAgent = {
+        app: { bsky: { graph: { getFollows: getFollowsMock } } },
+        com: { atproto: { repo: { listRecords: listRecordsMock } } }
+      } as unknown as Agent;
+
+      const progressCallback = vi.fn();
+      const results = await findMutualsBlockedByMutuals(
+        mockAgent,
+        'did:plc:user',
+        5,
+        progressCallback
+      );
+
+      expect(progressCallback).toHaveBeenCalledWith(2, 2);
+      expect(results).toEqual([
+        {
+          blocked: { did: 'did:plc:m2', handle: 'm2.bsky.social', displayName: undefined, avatar: undefined },
+          blockedByMutuals: [{ did: 'did:plc:m1', handle: 'm1.bsky.social', displayName: undefined, avatar: undefined }],
+          count: 1
+        }
+      ]);
+    });
+
+    it('works without progress callback provided', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: {
+          cursor: undefined,
+          follows: [
+            {
+              did: 'did:plc:m1',
+              handle: 'm1.bsky.social',
+              viewer: { followedBy: 'at://follow1' }
+            }
+          ]
+        }
+      });
+      const listRecordsMock = vi.fn().mockResolvedValue({
+        data: { cursor: undefined, records: [] }
+      });
+      const mockAgent = {
+        app: { bsky: { graph: { getFollows: getFollowsMock } } },
+        com: { atproto: { repo: { listRecords: listRecordsMock } } }
+      } as unknown as Agent;
+
+      const results = await findMutualsBlockedByMutuals(mockAgent, 'did:plc:user');
       expect(results).toEqual([]);
     });
   });

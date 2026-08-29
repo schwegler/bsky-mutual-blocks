@@ -58,6 +58,7 @@ const HTML_FIXTURE = `
             <button id="check-btn">Check Mutual Blocks</button>
             <div class="divider-text">or</div>
             <button id="scan-mutuals-btn" class="btn-secondary">Find Top Blockers Among Mutuals</button>
+            <button id="scan-top-blocked-btn" class="btn-secondary">Find Top Blocked Among Mutuals</button>
           </div>
 
           <div id="status-container" class="status-msg"></div>

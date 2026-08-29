@@ -5,9 +5,11 @@ import {
   fetchAllMutuals,
   findMutualsBlockingTarget,
   findTopBlockersAmongMutuals,
+  findTopBlockedAmongMutuals,
   resolveActor,
   MutualProfile,
-  MutualBlockerSummary
+  MutualBlockerSummary,
+  MutualBlockedSummary
 } from './bsky';
 import { AppBskyActorDefs } from '@atproto/api';
 
@@ -63,6 +65,7 @@ const targetInput = document.getElementById('target-input') as HTMLInputElement;
 const suggestionsList = document.getElementById('suggestions-list')!;
 const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
 const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
 
 const statusContainer = document.getElementById('status-container')!;
 const progressContainer = document.getElementById('progress-container')!;
@@ -261,6 +264,8 @@ checkBtn.addEventListener('click', async () => {
   progressFill.style.width = '0%';
 
   checkBtn.disabled = true;
+  scanMutualsBtn.disabled = true;
+  scanTopBlockedBtn.disabled = true;
 
   try {
     const blockers = await findMutualsBlockingTarget(
@@ -283,6 +288,8 @@ checkBtn.addEventListener('click', async () => {
     progressContainer.classList.add('hidden');
     progressContainer.setAttribute('aria-busy', 'false');
     checkBtn.disabled = false;
+    scanMutualsBtn.disabled = false;
+    scanTopBlockedBtn.disabled = false;
   }
 });
 
@@ -320,6 +327,7 @@ scanMutualsBtn.addEventListener('click', async () => {
 
   checkBtn.disabled = true;
   scanMutualsBtn.disabled = true;
+  scanTopBlockedBtn.disabled = true;
 
   try {
     const topBlockers = await findTopBlockersAmongMutuals(
@@ -342,6 +350,68 @@ scanMutualsBtn.addEventListener('click', async () => {
     progressContainer.setAttribute('aria-busy', 'false');
     checkBtn.disabled = false;
     scanMutualsBtn.disabled = false;
+    scanTopBlockedBtn.disabled = false;
+  }
+});
+
+// Run top blocked among mutuals scan
+scanTopBlockedBtn.addEventListener('click', async () => {
+  const agent = getAgent();
+  const session = getSession();
+  if (!session) return;
+
+  resultsContainer.innerHTML = '';
+
+  if (!cachedMutuals) {
+    cachedMutuals = getCachedMutualsFromStorage(session.sub);
+  }
+
+  if (!cachedMutuals) {
+    statusContainer.textContent = 'Fetching your mutuals list...';
+    progressContainer.classList.add('hidden');
+    cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
+      statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
+    });
+    setCachedMutualsInStorage(session.sub, cachedMutuals);
+  }
+
+  if (cachedMutuals.length === 0) {
+    statusContainer.textContent = 'You have no mutual followers on this account.';
+    progressContainer.classList.add('hidden');
+    return;
+  }
+
+  statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} mutuals...`;
+  progressContainer.classList.remove('hidden');
+  progressContainer.setAttribute('aria-busy', 'true');
+  progressFill.style.width = '0%';
+
+  checkBtn.disabled = true;
+  scanMutualsBtn.disabled = true;
+  scanTopBlockedBtn.disabled = true;
+
+  try {
+    const topBlocked = await findTopBlockedAmongMutuals(
+      agent,
+      cachedMutuals,
+      ({ scanned, total }) => {
+        statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} mutuals...`;
+        const pct = Math.round((scanned / total) * 100);
+        progressFill.style.width = `${pct}%`;
+      }
+    );
+
+    statusContainer.textContent = `Scan complete. Found ${topBlocked.length} mutual(s) blocked by other mutuals.`;
+    renderTopBlockedResults(topBlocked);
+  } catch (err: any) {
+    console.error('Top Blocked Scan Error:', err);
+    statusContainer.textContent = `Error: ${err.message || String(err)}`;
+  } finally {
+    progressContainer.classList.add('hidden');
+    progressContainer.setAttribute('aria-busy', 'false');
+    checkBtn.disabled = false;
+    scanMutualsBtn.disabled = false;
+    scanTopBlockedBtn.disabled = false;
   }
 });
 
@@ -464,6 +534,91 @@ function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
       } else {
         container.classList.add('hidden');
         toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;`;
+      }
+    });
+  });
+}
+
+function renderTopBlockedResults(summaries: MutualBlockedSummary[]) {
+  if (summaries.length === 0) {
+    resultsContainer.innerHTML = `<p class="no-results">None of your mutuals are blocked by any of your other mutuals.</p>`;
+    return;
+  }
+
+  const listElement = document.createElement('ul');
+  listElement.className = 'blocker-list';
+
+  summaries.forEach((summary, index) => {
+    const card = document.createElement('li');
+    card.className = 'mutual-blocker-card';
+    const delay = Math.min(index * 50, 500);
+    card.style.animationDelay = `${delay}ms`;
+
+    const blockedProfileUrl = `https://bsky.app/profile/${encodeURIComponent(summary.blocked.handle)}`;
+    const avatarImg = summary.blocked.avatar
+      ? `<img src="${summary.blocked.avatar}" class="avatar-md" alt="${escapeHtml(summary.blocked.handle)} avatar" />`
+      : `<div class="avatar-md avatar-placeholder"></div>`;
+    const blockedDisplayName = escapeHtml(summary.blocked.displayName || summary.blocked.handle);
+    const blockedHandle = escapeHtml(summary.blocked.handle);
+
+    card.innerHTML = `
+      <div class="mutual-blocker-header">
+        <a href="${blockedProfileUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
+          ${avatarImg}
+        </a>
+        <div class="blocker-info">
+          <a href="${blockedProfileUrl}" target="_blank" rel="noopener noreferrer" class="display-name">
+            <strong>${blockedDisplayName}</strong>
+          </a>
+          <a href="${blockedProfileUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${blockedHandle}</a>
+        </div>
+        <button class="toggle-expand-btn" id="blocked-toggle-btn-${index}">
+          Blocked by ${summary.blockedByMutuals.length} mutual${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9660;
+        </button>
+      </div>
+      <div class="blocked-mutuals-container hidden" id="blocked-by-container-${index}">
+        <ul class="blocked-mutuals-list">
+          ${summary.blockedByMutuals
+            .map((bm) => {
+              const bmUrl = `https://bsky.app/profile/${encodeURIComponent(bm.handle)}`;
+              const bmAvatar = bm.avatar
+                ? `<img src="${bm.avatar}" class="avatar-xs" alt="${escapeHtml(bm.handle)} avatar" />`
+                : `<div class="avatar-xs avatar-placeholder"></div>`;
+              return `
+                <li class="blocked-mutual-item">
+                  <a href="${bmUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
+                    ${bmAvatar}
+                  </a>
+                  <div class="blocker-info">
+                    <a href="${bmUrl}" target="_blank" rel="noopener noreferrer" class="display-name">
+                      <strong>${escapeHtml(bm.displayName || bm.handle)}</strong>
+                    </a>
+                    <a href="${bmUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${escapeHtml(bm.handle)}</a>
+                  </div>
+                </li>
+              `;
+            })
+            .join('')}
+        </ul>
+      </div>
+    `;
+
+    listElement.appendChild(card);
+  });
+
+  resultsContainer.appendChild(listElement);
+
+  summaries.forEach((summary, index) => {
+    const toggleBtn = document.getElementById(`blocked-toggle-btn-${index}`)!;
+    const container = document.getElementById(`blocked-by-container-${index}`)!;
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = container.classList.contains('hidden');
+      if (isHidden) {
+        container.classList.remove('hidden');
+        toggleBtn.innerHTML = `Blocked by ${summary.blockedByMutuals.length} mutual${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9650;`;
+      } else {
+        container.classList.add('hidden');
+        toggleBtn.innerHTML = `Blocked by ${summary.blockedByMutuals.length} mutual${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9660;`;
       }
     });
   });
