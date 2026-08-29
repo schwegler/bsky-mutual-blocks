@@ -23,7 +23,6 @@ export interface MutualBlockerEntry {
   count: number;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * 1. Resolve any handle or DID input to a canonical DID & Profile.
@@ -90,18 +89,15 @@ export async function mapConcurrent<T, R>(
   return results;
 }
 
-/**
- * Fetch all direct block records for a single user using full pagination with 429 retry backoff.
- */
 export async function fetchAllUserBlocks(
   repoDid: string,
   maxRetries = 3
 ): Promise<string[]> {
   const blockedDids: string[] = [];
-  let cursor: string | undefined = undefined;
 
-  let pdsUrl: string | null = null;
   try {
+    let pdsUrl: string | undefined;
+
     if (repoDid.startsWith('did:plc:')) {
       const res = await fetch(`https://plc.directory/${repoDid}`);
       if (res.ok) {
@@ -122,66 +118,64 @@ export async function fetchAllUserBlocks(
         }
       }
     }
-  } catch (err) {
-    console.error(`Failed to resolve PDS for ${repoDid}`, err);
-  }
 
-  if (!pdsUrl) {
-    return blockedDids;
-  }
+    if (!pdsUrl) {
+      return blockedDids;
+    }
 
-  const pdsAgent = new Agent(pdsUrl);
-  const api = pdsAgent.com?.atproto?.repo
-    ? pdsAgent.com.atproto.repo
-    : pdsAgent.api?.com?.atproto?.repo
-    ? pdsAgent.api.com.atproto.repo
-    : null;
+    let cursor: string | undefined;
 
-  do {
-    let attempts = 0;
-    let success = false;
+    do {
+      let attempts = 0;
+      let success = false;
 
-    while (attempts < maxRetries && !success) {
-      try {
-        if (!api || typeof api.listRecords !== 'function') {
-          return blockedDids;
-        }
+      while (attempts < maxRetries && !success) {
+        try {
+          let url = `${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${repoDid}&collection=app.bsky.graph.block&limit=100`;
+          if (cursor) {
+            url += `&cursor=${encodeURIComponent(cursor)}`;
+          }
 
-        const response = await api.listRecords({
-          repo: repoDid,
-          collection: 'app.bsky.graph.block',
-          limit: 100,
-          cursor
-        });
+          const response = await fetch(url);
 
-        if (!response?.data?.records) {
-          return blockedDids;
-        }
+          if (response.status === 429) {
+            throw { status: 429 };
+          }
 
-        for (const record of response.data.records) {
-          const subject = (record.value as { subject?: string })?.subject;
-          if (subject) {
-            blockedDids.push(subject);
+          if (!response.ok) {
+            return blockedDids;
+          }
+
+          const data = await response.json();
+
+          if (!data?.records) {
+            return blockedDids;
+          }
+
+          for (const record of data.records) {
+            const subject = record.value?.subject;
+            if (subject) {
+              blockedDids.push(subject);
+            }
+          }
+
+          cursor = data.cursor;
+          success = true;
+        } catch (err: any) {
+          attempts++;
+          if (err?.status === 429 || err?.message?.includes('Rate Limit')) {
+            const waitMs = Math.pow(2, attempts) * 1000;
+            console.warn(`[429] Rate limit on ${repoDid}. Retrying in ${waitMs}ms...`);
+            await new Promise(r => setTimeout(r, waitMs));
+          } else {
+            return blockedDids;
           }
         }
-
-        cursor = response.data.cursor;
-        success = true;
-      } catch (err: any) {
-        attempts++;
-        const isRateLimit = err?.status === 429 || err?.message?.includes('Rate Limit');
-
-        if (isRateLimit && attempts < maxRetries) {
-          const waitMs = Math.pow(2, attempts) * 1000;
-          console.warn(`[429] Rate limit on ${repoDid}. Retrying in ${waitMs}ms...`);
-          await sleep(waitMs);
-        } else {
-          // If deactivated, deleted, private repo, or max retries exceeded, safely exit
-          return blockedDids;
-        }
       }
-    }
-  } while (cursor);
+    } while (cursor);
+  } catch (err) {
+    console.error('Error fetching blocks for', repoDid, err);
+  }
 
   return blockedDids;
 }
