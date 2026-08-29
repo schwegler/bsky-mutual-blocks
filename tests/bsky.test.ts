@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Agent } from '@atproto/api';
+import { get, set } from 'idb-keyval';
 import {
   resolveActor,
   mapConcurrent,
-  
   searchActorsTypeahead,
   fetchAllMutuals,
+  fetchAllUserBlocks,
   findMutualsBlockingTarget,
   findTopBlockersAmongMutuals,
   findMutualsBlockingMutuals,
@@ -287,6 +288,318 @@ afterEach(() => {
 
       const mutuals = await fetchAllMutuals(mockAgent, 'did:plc:user');
       expect(mutuals).toEqual([]);
+    });
+  });
+
+  describe('fetchAllUserBlocks', () => {
+    it('returns cached blocks if cache is fresh (< 24h)', async () => {
+      await set('blocks_did:plc:cachedUser', {
+        timestamp: Date.now(),
+        blockedDids: ['did:plc:target1', 'did:plc:target2']
+      });
+
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      const blocks = await fetchAllUserBlocks('did:plc:cachedUser');
+      expect(blocks).toEqual(['did:plc:target1', 'did:plc:target2']);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('warns and continues if cache read throws an error', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.mocked(get).mockRejectedValueOnce(new Error('IDB read failure'));
+
+      const blocks = await fetchAllUserBlocks('did:plc:mutual0');
+      expect(blocks).toEqual(['did:plc:resolvedTarget']);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Cache read failed for did:plc:mutual0',
+        expect.any(Error)
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('refetches when cache entry is expired (> 24h)', async () => {
+      await set('blocks_did:plc:mutual0', {
+        timestamp: Date.now() - (25 * 60 * 60 * 1000),
+        blockedDids: ['did:plc:oldBlock']
+      });
+
+      const blocks = await fetchAllUserBlocks('did:plc:mutual0');
+      expect(blocks).toEqual(['did:plc:resolvedTarget']);
+    });
+
+    it('resolves did:plc: and fetches block records with pagination and parses subjects', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url === 'https://plc.directory/did:plc:paginated') {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://pds.example.com' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords') && !url.includes('cursor=')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              cursor: 'cursor2',
+              records: [
+                { value: { subject: 'did:plc:target1' } },
+                { value: {} } // without subject
+              ]
+            })
+          };
+        }
+        if (url.includes('cursor=cursor2')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              cursor: undefined,
+              records: [
+                { value: { subject: 'did:plc:target2' } }
+              ]
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const blocks = await fetchAllUserBlocks('did:plc:paginated');
+      expect(blocks).toEqual(['did:plc:target1', 'did:plc:target2']);
+    });
+
+    it('resolves did:web: by fetching .well-known/did.json and parses block records', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url === 'https://alice.example.com/.well-known/did.json') {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://pds.web.com' }]
+            })
+          };
+        }
+        if (url.startsWith('https://pds.web.com')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              records: [{ value: { subject: 'did:plc:blockedByWeb' } }]
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const blocks = await fetchAllUserBlocks('did:web:alice.example.com');
+      expect(blocks).toEqual(['did:plc:blockedByWeb']);
+    });
+
+    it('returns empty array if did:plc: has no #atproto_pds or response is not ok', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url === 'https://plc.directory/did:plc:nopds') {
+          return {
+            ok: true,
+            json: async () => ({ service: [{ id: '#other_service', serviceEndpoint: 'https://other.com' }] })
+          };
+        }
+        if (url === 'https://plc.directory/did:plc:noservice') {
+          return {
+            ok: true,
+            json: async () => ({})
+          };
+        }
+        if (url === 'https://plc.directory/did:plc:notok') {
+          return { ok: false };
+        }
+        return { ok: false };
+      });
+
+      expect(await fetchAllUserBlocks('did:plc:nopds')).toEqual([]);
+      expect(await fetchAllUserBlocks('did:plc:noservice')).toEqual([]);
+      expect(await fetchAllUserBlocks('did:plc:notok')).toEqual([]);
+    });
+
+    it('returns empty array if did:web: has no #atproto_pds or response is not ok', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url === 'https://nopds.com/.well-known/did.json') {
+          return {
+            ok: true,
+            json: async () => ({ service: [{ id: '#other_service' }] })
+          };
+        }
+        if (url === 'https://noservice.com/.well-known/did.json') {
+          return {
+            ok: true,
+            json: async () => ({})
+          };
+        }
+        if (url === 'https://notok.com/.well-known/did.json') {
+          return { ok: false };
+        }
+        return { ok: false };
+      });
+
+      expect(await fetchAllUserBlocks('did:web:nopds.com')).toEqual([]);
+      expect(await fetchAllUserBlocks('did:web:noservice.com')).toEqual([]);
+      expect(await fetchAllUserBlocks('did:web:notok.com')).toEqual([]);
+    });
+
+    it('returns empty array if DID format is unsupported (not did:plc or did:web)', async () => {
+      expect(await fetchAllUserBlocks('did:key:z6Mku...')).toEqual([]);
+    });
+
+    it('handles 429 status code with retry and backoff, succeeding on retry', async () => {
+      vi.useFakeTimers();
+      let callCount = 0;
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          callCount++;
+          if (callCount === 1) {
+            return { status: 429, ok: false };
+          }
+          return {
+            status: 200,
+            ok: true,
+            json: async () => ({ records: [{ value: { subject: 'did:plc:retriedTarget' } }] })
+          };
+        }
+        return { ok: false };
+      });
+
+      const promise = fetchAllUserBlocks('did:plc:rateLimited', 3);
+      await vi.runAllTimersAsync();
+      const blocks = await promise;
+      expect(blocks).toEqual(['did:plc:retriedTarget']);
+      expect(callCount).toBe(2);
+      vi.useRealTimers();
+    });
+
+    it('handles 429 status code exceeding maxRetries, returning current blocks', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          return { status: 429, ok: false };
+        }
+        return { ok: false };
+      });
+
+      const promise = fetchAllUserBlocks('did:plc:rateLimitedForever', 1);
+      await vi.runAllTimersAsync();
+      const blocks = await promise;
+      expect(blocks).toEqual([]);
+      vi.useRealTimers();
+    });
+
+    it('handles !response.ok from PDS (e.g. 404, 500) and returns current blocks', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          return { status: 500, ok: false };
+        }
+        return { ok: false };
+      });
+
+      const blocks = await fetchAllUserBlocks('did:plc:serverError');
+      expect(blocks).toEqual([]);
+    });
+
+    it('handles missing records in response and returns current blocks', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          return { status: 200, ok: true, json: async () => ({}) };
+        }
+        return { ok: false };
+      });
+
+      const blocks = await fetchAllUserBlocks('did:plc:noRecords');
+      expect(blocks).toEqual([]);
+    });
+
+    it('handles non-429 exception thrown during record fetching loop and returns current blocks', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => {
+              throw new Error('Malformed JSON');
+            }
+          };
+        }
+        return { ok: false };
+      });
+
+      const blocks = await fetchAllUserBlocks('did:plc:jsonError');
+      expect(blocks).toEqual([]);
+    });
+
+    it('warns when cache write throws an error', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.mocked(set).mockRejectedValueOnce(new Error('IDB write failure'));
+
+      const blocks = await fetchAllUserBlocks('did:plc:mutual0');
+      expect(blocks).toEqual(['did:plc:resolvedTarget']);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Cache write failed for did:plc:mutual0',
+        expect.any(Error)
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('handles top-level fetch exception (e.g. network failure)', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      const blocks = await fetchAllUserBlocks('did:plc:networkFail');
+      expect(blocks).toEqual([]);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error fetching blocks for',
+        'did:plc:networkFail',
+        expect.any(Error)
+      );
+      consoleErrorSpy.mockRestore();
     });
   });
 

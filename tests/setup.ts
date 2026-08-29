@@ -1,5 +1,13 @@
 import { beforeEach, vi } from 'vitest';
 
+export const mockIdbStore = new Map<string, any>();
+vi.mock('idb-keyval', () => ({
+  get: vi.fn(async (key: string) => mockIdbStore.get(key)),
+  set: vi.fn(async (key: string, val: any) => { mockIdbStore.set(key, val); }),
+  del: vi.fn(async (key: string) => { mockIdbStore.delete(key); }),
+  clear: vi.fn(async () => { mockIdbStore.clear(); })
+}));
+
 const HTML_FIXTURE = `
 <!DOCTYPE html>
 <html lang="en">
@@ -73,6 +81,7 @@ export function setupDOM() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  mockIdbStore.clear();
   sessionStorage.clear();
   localStorage.clear();
   setupDOM();
