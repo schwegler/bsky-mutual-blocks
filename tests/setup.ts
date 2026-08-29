@@ -20,6 +20,18 @@ const HTML_FIXTURE = `
       <header>
         <h1>Bluesky Moot Block & Controversy Finder</h1>
         <p class="header-subtitle">Find which of your moots block any account, and discover your circle's top blockers &amp; most blocked moots.</p>
+        <div class="creator-attribution">
+          <span class="attribution-label">Created by</span>
+          <a href="https://bsky.app/profile/schwegler.lol" target="_blank" rel="noopener noreferrer" class="creator-badge-pill" title="Follow @schwegler.lol on Bluesky">
+            <span>@schwegler.lol</span>
+          </a>
+          <span class="attribution-dot">&bull;</span>
+          <a href="https://tacobout.online" target="_blank" rel="noopener noreferrer" class="creator-badge-pill blog-pill" title="Read taco 'bout it blog">
+            <span class="taco-emoji">🌮</span>
+            <span class="blog-title">taco 'bout it</span>
+            <span class="blog-domain">tacobout.online</span>
+          </a>
+        </div>
       </header>
 
       <main>
@@ -71,6 +83,12 @@ const HTML_FIXTURE = `
           <div id="results-container"></div>
         </section>
       </main>
+
+      <footer class="app-footer">
+        <p>
+          Built with 💙 by <a href="https://bsky.app/profile/schwegler.lol" target="_blank" rel="noopener noreferrer">@schwegler.lol</a> &bull; Read the blog at <a href="https://tacobout.online" target="_blank" rel="noopener noreferrer">tacobout.online 🌮</a>
+        </p>
+      </footer>
     </div>
   </body>
 </html>

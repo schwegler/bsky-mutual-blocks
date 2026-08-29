@@ -74,6 +74,122 @@ header h1 {
   line-height: 1.4;
 }
 
+.creator-attribution {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+}
+
+.attribution-label {
+  color: var(--text-muted);
+  font-size: 0.825rem;
+}
+
+.attribution-dot {
+  color: var(--border-color);
+  font-size: 0.75rem;
+}
+
+.creator-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  text-decoration: none;
+  font-size: 0.825rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.creator-badge-pill:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(56, 189, 248, 0.2);
+}
+
+.bsky-icon {
+  color: #0284c7;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.creator-badge-pill:hover .bsky-icon {
+  color: var(--accent);
+  transform: scale(1.1);
+}
+
+.blog-pill {
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.blog-pill:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+}
+
+.taco-emoji {
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.blog-pill:hover .taco-emoji {
+  transform: rotate(-10deg) scale(1.15);
+}
+
+.blog-title {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.blog-pill:hover .blog-title {
+  color: #fbbf24;
+}
+
+.blog-domain {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.app-footer {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.4);
+  text-align: center;
+  font-size: 0.825rem;
+  color: var(--text-muted);
+}
+
+.app-footer p {
+  margin: 0;
+}
+
+.app-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.app-footer a:hover {
+  color: #7dd3fc;
+  text-decoration: underline;
+}
+
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
