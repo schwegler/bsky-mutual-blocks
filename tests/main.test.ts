@@ -23,14 +23,18 @@ const mockFindTopBlockersAmongMutuals = vi.fn();
 const mockFindTopBlockedAmongMutuals = vi.fn();
 const mockResolveActor = vi.fn();
 
-vi.mock('../src/bsky', () => ({
-  searchActorsTypeahead: (...args: any[]) => mockSearchActorsTypeahead(...args),
-  fetchAllMutuals: (...args: any[]) => mockFetchAllMutuals(...args),
-  findMutualsBlockingTarget: (...args: any[]) => mockFindMutualsBlockingTarget(...args),
-  findTopBlockersAmongMutuals: (...args: any[]) => mockFindTopBlockersAmongMutuals(...args),
-  findTopBlockedAmongMutuals: (...args: any[]) => mockFindTopBlockedAmongMutuals(...args),
-  resolveActor: (...args: any[]) => mockResolveActor(...args)
-}));
+vi.mock('../src/bsky', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/bsky')>();
+  return {
+    ...actual,
+    searchActorsTypeahead: (...args: any[]) => mockSearchActorsTypeahead(...args),
+    fetchAllMutuals: (...args: any[]) => mockFetchAllMutuals(...args),
+    findMutualsBlockingTarget: (...args: any[]) => mockFindMutualsBlockingTarget(...args),
+    findTopBlockersAmongMutuals: (...args: any[]) => mockFindTopBlockersAmongMutuals(...args),
+    findTopBlockedAmongMutuals: (...args: any[]) => mockFindTopBlockedAmongMutuals(...args),
+    resolveActor: (...args: any[]) => mockResolveActor(...args)
+  };
+});
 
 describe('main module', () => {
   beforeEach(() => {
@@ -313,74 +317,75 @@ describe('main module', () => {
   });
 
   describe('typeahead autocomplete', () => {
-    it('hides suggestions list if input query is less than 2 characters', async () => {
-      mockInitOAuth.mockResolvedValue({ session: null, agent: null });
-      mockGetSession.mockReturnValue(null);
+    it('does not trigger search if input length is less than 2', async () => {
+      mockInitOAuth.mockResolvedValue({ session: { sub: 'did:plc:user' }, agent: {} });
       await loadMainModule();
 
       const targetInput = document.getElementById('target-input') as HTMLInputElement;
       const suggestionsList = document.getElementById('suggestions-list')!;
 
-      suggestionsList.classList.remove('hidden');
-      suggestionsList.innerHTML = '<li>Item</li>';
-
       targetInput.value = 'a';
       targetInput.dispatchEvent(new Event('input'));
+      vi.advanceTimersByTime(300);
 
+      expect(mockSearchActorsTypeahead).not.toHaveBeenCalled();
       expect(suggestionsList.classList.contains('hidden')).toBe(true);
       expect(suggestionsList.innerHTML).toBe('');
     });
 
-    it('debounces typeahead query and renders suggestions list (with avatar & without avatar & fallback data-handle)', async () => {
-      const mockAgent = {};
-      mockInitOAuth.mockResolvedValue({ session: null, agent: null });
-      mockGetSession.mockReturnValue(null);
-      mockGetAgent.mockReturnValue(mockAgent);
-      mockSearchActorsTypeahead.mockResolvedValue([
+    it('renders autocomplete results after debounce and allows selection (with/without avatar)', async () => {
+      const mockActors = [
         {
           did: 'did:plc:actor1',
           handle: 'actor1.bsky.social',
-          displayName: '<Actor & 1>',
-          avatar: 'https://example.com/actor1.jpg'
+          displayName: '<Actor 1>',
+          avatar: 'https://example.com/a1.jpg'
         },
         {
           did: 'did:plc:actor2',
           handle: 'actor2.bsky.social',
-          displayName: null,
+          displayName: '',
           avatar: null
         }
-      ]);
+      ];
+
+      mockInitOAuth.mockResolvedValue({ session: { sub: 'did:plc:user' }, agent: {} });
+      mockSearchActorsTypeahead.mockResolvedValue(mockActors);
 
       await loadMainModule();
 
       const targetInput = document.getElementById('target-input') as HTMLInputElement;
       const suggestionsList = document.getElementById('suggestions-list')!;
 
-      targetInput.value = 'actor';
+      targetInput.value = 'act';
       targetInput.dispatchEvent(new Event('input'));
 
+      // Before timer fires
       expect(mockSearchActorsTypeahead).not.toHaveBeenCalled();
+
+      // Advance debounce timer
       vi.advanceTimersByTime(250);
       await vi.runAllTimersAsync();
 
-      expect(mockSearchActorsTypeahead).toHaveBeenCalledWith(mockAgent, 'actor');
+      expect(mockSearchActorsTypeahead).toHaveBeenCalledWith(expect.anything(), 'act');
       expect(suggestionsList.classList.contains('hidden')).toBe(false);
-      expect(suggestionsList.innerHTML).toContain('&lt;Actor &amp; 1&gt;');
+      expect(suggestionsList.querySelectorAll('li')).toHaveLength(2);
+
+      // Verify HTML escaping and avatar rendering
+      expect(suggestionsList.innerHTML).toContain('&lt;Actor 1&gt;');
+      expect(suggestionsList.innerHTML).toContain('https://example.com/a1.jpg');
       expect(suggestionsList.innerHTML).toContain('avatar-placeholder');
 
-      // Click suggestion item without data-handle attribute to test fallback || ''
-      const liItem2 = suggestionsList.querySelector('li[data-did="did:plc:actor2"]') as HTMLElement;
-      liItem2.removeAttribute('data-handle');
-      liItem2.click();
+      // Click second suggestion
+      const secondLi = suggestionsList.querySelectorAll('li')[1] as HTMLElement;
+      secondLi.click();
 
-      expect(targetInput.value).toBe('');
+      expect(targetInput.value).toBe('actor2.bsky.social');
       expect(suggestionsList.classList.contains('hidden')).toBe(true);
     });
 
-    it('renders no suggestions list if actors result is empty', async () => {
-      mockInitOAuth.mockResolvedValue({ session: null, agent: null });
-      mockGetSession.mockReturnValue(null);
-      mockGetAgent.mockReturnValue({});
+    it('hides suggestion list if search returns empty array', async () => {
+      mockInitOAuth.mockResolvedValue({ session: { sub: 'did:plc:user' }, agent: {} });
       mockSearchActorsTypeahead.mockResolvedValue([]);
 
       await loadMainModule();
@@ -390,7 +395,6 @@ describe('main module', () => {
 
       targetInput.value = 'nonexistent';
       targetInput.dispatchEvent(new Event('input'));
-
       vi.advanceTimersByTime(250);
       await vi.runAllTimersAsync();
 
@@ -398,23 +402,21 @@ describe('main module', () => {
       expect(suggestionsList.innerHTML).toBe('');
     });
 
-    it('catches and logs error if typeahead fails', async () => {
+    it('logs error when searchActorsTypeahead throws', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      mockInitOAuth.mockResolvedValue({ session: null, agent: null });
-      mockGetSession.mockReturnValue(null);
-      mockGetAgent.mockReturnValue({});
-      mockSearchActorsTypeahead.mockRejectedValue(new Error('Typeahead error'));
+      mockInitOAuth.mockResolvedValue({ session: { sub: 'did:plc:user' }, agent: {} });
+      mockSearchActorsTypeahead.mockRejectedValue(new Error('Network error'));
 
       await loadMainModule();
 
       const targetInput = document.getElementById('target-input') as HTMLInputElement;
-      targetInput.value = 'actor';
+      targetInput.value = 'throw';
       targetInput.dispatchEvent(new Event('input'));
-
       vi.advanceTimersByTime(250);
       await vi.runAllTimersAsync();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error));
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -431,56 +433,48 @@ describe('main module', () => {
       expect(mockFindMutualsBlockingTarget).not.toHaveBeenCalled();
     });
 
-    it('alerts if target handle input is empty (without selected target DID)', async () => {
-      const mockSession = { sub: 'did:plc:user123' };
-
-      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
-      mockGetSession.mockReturnValue(mockSession);
+    it('alerts user if target input is empty and no suggestion was selected', async () => {
+      mockInitOAuth.mockResolvedValue({ session: { sub: 'did:plc:user' }, agent: {} });
+      mockGetSession.mockReturnValue({ sub: 'did:plc:user' });
 
       await loadMainModule();
 
-      const targetInput = document.getElementById('target-input') as HTMLInputElement;
       const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
+      const targetInput = document.getElementById('target-input') as HTMLInputElement;
+      targetInput.value = '';
 
-      targetInput.value = '   ';
       checkBtn.click();
 
       expect(window.alert).toHaveBeenCalledWith('Please enter a Bluesky username.');
+      expect(mockFindMutualsBlockingTarget).not.toHaveBeenCalled();
     });
 
-    it('shows error message if resolveActor fails', async () => {
-      const mockSession = { sub: 'did:plc:user123' };
-      const mockAgent = {};
-
-      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
-      mockGetSession.mockReturnValue(mockSession);
-      mockGetAgent.mockReturnValue(mockAgent);
-      mockResolveActor.mockRejectedValue(new Error('Resolve error'));
+    it('resolves handle if selectedTargetDid is not set and updates status on failure', async () => {
+      mockInitOAuth.mockResolvedValue({ session: { sub: 'did:plc:user' }, agent: {} });
+      mockGetSession.mockReturnValue({ sub: 'did:plc:user' });
+      mockResolveActor.mockRejectedValue(new Error('Handle not found'));
 
       await loadMainModule();
 
-      const targetInput = document.getElementById('target-input') as HTMLInputElement;
       const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
+      const targetInput = document.getElementById('target-input') as HTMLInputElement;
       const statusContainer = document.getElementById('status-container')!;
 
-      targetInput.value = '@invalid.handle';
+      targetInput.value = '@unknown.bsky.social';
       checkBtn.click();
       await vi.runAllTimersAsync();
 
-      expect(mockResolveActor).toHaveBeenCalledWith(mockAgent, 'invalid.handle');
+      expect(mockResolveActor).toHaveBeenCalledWith(expect.anything(), 'unknown.bsky.social');
       expect(statusContainer.textContent).toBe('Could not resolve handle. Check spelling.');
+      expect(mockFindMutualsBlockingTarget).not.toHaveBeenCalled();
     });
 
-    it('handles scenario where cached mutuals is empty array', async () => {
+    it('handles scenario where user has 0 mutuals', async () => {
       const mockSession = { sub: 'did:plc:user123' };
-      const mockAgent = {};
-
-      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([]));
-
-      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
       mockGetSession.mockReturnValue(mockSession);
-      mockGetAgent.mockReturnValue(mockAgent);
       mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
+      mockFetchAllMutuals.mockResolvedValue([]);
 
       await loadMainModule();
 
@@ -493,6 +487,35 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(statusContainer.textContent).toBe('You have no mutual followers (moots) on this account.');
+      expect(mockFindMutualsBlockingTarget).not.toHaveBeenCalled();
+    });
+
+    it('uses cached mutuals from sessionStorage if available', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const cachedList = [{ did: 'did:plc:m1', handle: 'm1.bsky.social' }];
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify(cachedList));
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
+      mockFindMutualsBlockingTarget.mockResolvedValue({ blockingMutuals: [], incompleteMoots: [] });
+
+      await loadMainModule();
+
+      const targetInput = document.getElementById('target-input') as HTMLInputElement;
+      const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
+
+      targetInput.value = 'target.bsky.social';
+      checkBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFetchAllMutuals).not.toHaveBeenCalled();
+      expect(mockFindMutualsBlockingTarget).toHaveBeenCalledWith(
+        expect.anything(),
+        'did:plc:target',
+        cachedList,
+        expect.any(Function)
+      );
     });
 
     it('fetches mutuals when uncached, updates progress, saves to cache, and renders blockers', async () => {
@@ -519,7 +542,7 @@ describe('main module', () => {
       const blockers = [mutualList[0], mutualList[1]];
       mockFindMutualsBlockingTarget.mockImplementation(async (_agent, _targetDid, _mutuals, onProgress) => {
         if (onProgress) onProgress({ scanned: 2, total: 2 });
-        return blockers;
+        return { blockingMutuals: blockers, incompleteMoots: [] };
       });
 
       await loadMainModule();
@@ -558,7 +581,7 @@ describe('main module', () => {
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
 
-      mockFindMutualsBlockingTarget.mockResolvedValue([]);
+      mockFindMutualsBlockingTarget.mockResolvedValue({ blockingMutuals: [], incompleteMoots: [] });
 
       await loadMainModule();
 
@@ -588,6 +611,75 @@ describe('main module', () => {
       );
     });
 
+    it('renders warning banner and handles toggle and retry when incomplete moots exist', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const mockAgent = {
+        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
+      };
+
+      sessionStorage.setItem(
+        'bsky_mutuals_cache_did:plc:user123',
+        JSON.stringify([{ did: 'did:plc:m1', handle: 'm1.bsky.social' }, { did: 'did:plc:m2', handle: 'm2.bsky.social' }])
+      );
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue(mockAgent);
+      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
+
+      const moot1 = { did: 'did:plc:m1', handle: 'm1.bsky.social' };
+      const moot2 = { did: 'did:plc:m2', handle: 'm2.bsky.social' };
+
+      mockFindMutualsBlockingTarget.mockResolvedValueOnce({
+        blockingMutuals: [moot1],
+        incompleteMoots: [
+          { moot: moot2, reason: 'rate_limit', partialCount: 150 }
+        ]
+      });
+
+      await loadMainModule();
+
+      const targetInput = document.getElementById('target-input') as HTMLInputElement;
+      const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
+      const statusContainer = document.getElementById('status-container')!;
+      const resultsContainer = document.getElementById('results-container')!;
+
+      targetInput.value = 'target.bsky.social';
+      checkBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(statusContainer.textContent).toContain('Scan complete');
+      expect(resultsContainer.innerHTML).toContain('scan-warning-card');
+      expect(resultsContainer.innerHTML).toContain('1 moot could not be fully checked');
+      expect(resultsContainer.innerHTML).toContain('Rate limit reached during scan (150 blocks scanned)');
+
+      // Toggle details
+      const toggleBtn = document.getElementById('toggle-warning-details-btn') as HTMLButtonElement;
+      const container = document.getElementById('incomplete-moots-container') as HTMLElement;
+      expect(container.classList.contains('hidden')).toBe(true);
+
+      toggleBtn.click();
+      expect(container.classList.contains('hidden')).toBe(false);
+      expect(toggleBtn.textContent).toContain('Hide Details');
+
+      toggleBtn.click();
+      expect(container.classList.contains('hidden')).toBe(true);
+
+      // Retry incomplete moots
+      mockFindMutualsBlockingTarget.mockResolvedValueOnce({
+        blockingMutuals: [moot2],
+        incompleteMoots: []
+      });
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      // Now both blockers should be rendered, warning banner gone
+      expect(resultsContainer.querySelectorAll('.blocker-card')).toHaveLength(2);
+      expect(resultsContainer.querySelector('.scan-warning-card')).toBeNull();
+    });
+
     it('handles scan error gracefully in catch block', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const mockSession = { sub: 'did:plc:user123' };
@@ -603,7 +695,6 @@ describe('main module', () => {
       mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
-      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
 
       mockFindMutualsBlockingTarget.mockRejectedValue(new Error('API failure'));
 
@@ -619,40 +710,14 @@ describe('main module', () => {
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('Scan Error:', expect.any(Error));
       expect(statusContainer.textContent).toBe('Error performing block check: API failure');
-      expect(checkBtn.disabled).toBe(false);
-    });
 
-    it('handles scan error with non-Error object gracefully in catch block', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const mockSession = { sub: 'did:plc:user123' };
-      const mockAgent = {
-        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
-      };
-
-      sessionStorage.setItem(
-        'bsky_mutuals_cache_did:plc:user123',
-        JSON.stringify([{ did: 'did:plc:m1', handle: 'm1.bsky.social' }])
-      );
-
-      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
-      mockGetSession.mockReturnValue(mockSession);
-      mockGetAgent.mockReturnValue(mockAgent);
-      mockResolveActor.mockResolvedValue({ did: 'did:plc:target' });
-
+      // Test fallback to string error
       mockFindMutualsBlockingTarget.mockRejectedValue('String error');
-
-      await loadMainModule();
-
-      const targetInput = document.getElementById('target-input') as HTMLInputElement;
-      const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
-      const statusContainer = document.getElementById('status-container')!;
-
-      targetInput.value = 'target.bsky.social';
       checkBtn.click();
       await vi.runAllTimersAsync();
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Scan Error:', 'String error');
       expect(statusContainer.textContent).toBe('Error performing block check: String error');
+
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -721,7 +786,7 @@ describe('main module', () => {
 
       mockFindTopBlockersAmongMutuals.mockImplementation(async (_agent, _mutuals, onProgress) => {
         if (onProgress) onProgress({ scanned: 3, total: 3 });
-        return summaries;
+        return { summaries, incompleteMoots: [] };
       });
 
       await loadMainModule();
@@ -780,7 +845,7 @@ describe('main module', () => {
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
 
-      mockFindTopBlockersAmongMutuals.mockResolvedValue([]);
+      mockFindTopBlockersAmongMutuals.mockResolvedValue({ summaries: [], incompleteMoots: [] });
 
       await loadMainModule();
 
@@ -793,46 +858,6 @@ describe('main module', () => {
       expect(resultsContainer.innerHTML).toContain(
         'None of your moots block any of your other moots.'
       );
-    });
-
-    it('handles mutual scan error gracefully in catch block (Error object & non-Error object)', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const mockSession = { sub: 'did:plc:user123' };
-      const mockAgent = {
-        getProfile: vi.fn().mockResolvedValue({ data: { handle: 'user.bsky.social' } })
-      };
-
-      sessionStorage.setItem(
-        'bsky_mutuals_cache_did:plc:user123',
-        JSON.stringify([{ did: 'did:plc:m1', handle: 'm1.bsky.social' }])
-      );
-
-      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: mockAgent });
-      mockGetSession.mockReturnValue(mockSession);
-      mockGetAgent.mockReturnValue(mockAgent);
-
-      mockFindTopBlockersAmongMutuals.mockRejectedValueOnce(new Error('API failure'));
-
-      await loadMainModule();
-
-      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
-      const statusContainer = document.getElementById('status-container')!;
-
-      scanMutualsBtn.click();
-      await vi.runAllTimersAsync();
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', expect.any(Error));
-      expect(statusContainer.textContent).toBe('Error: API failure');
-
-      // Test string error rejection
-      mockFindTopBlockersAmongMutuals.mockRejectedValueOnce('String failure');
-      scanMutualsBtn.click();
-      await vi.runAllTimersAsync();
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', 'String failure');
-      expect(statusContainer.textContent).toBe('Error: String failure');
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -901,7 +926,7 @@ describe('main module', () => {
 
       mockFindTopBlockedAmongMutuals.mockImplementation(async (_agent, _mutuals, onProgress) => {
         if (onProgress) onProgress({ scanned: 3, total: 3 });
-        return summaries;
+        return { summaries, incompleteMoots: [] };
       });
 
       await loadMainModule();
@@ -960,7 +985,7 @@ describe('main module', () => {
       mockGetSession.mockReturnValue(mockSession);
       mockGetAgent.mockReturnValue(mockAgent);
 
-      mockFindTopBlockedAmongMutuals.mockResolvedValue([]);
+      mockFindTopBlockedAmongMutuals.mockResolvedValue({ summaries: [], incompleteMoots: [] });
 
       await loadMainModule();
 

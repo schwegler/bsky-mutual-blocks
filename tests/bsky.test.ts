@@ -291,6 +291,56 @@ afterEach(() => {
       const mutuals = await fetchAllMutuals(mockAgent, 'did:plc:user');
       expect(mutuals).toEqual([]);
     });
+
+    it('handles duplicate cursor from getFollows without infinite loop', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: {
+          cursor: 'repeatCursor',
+          follows: [
+            {
+              did: 'did:plc:mutual1',
+              handle: 'mutual1.bsky.social',
+              viewer: { followedBy: 'at://follow1' }
+            }
+          ]
+        }
+      });
+      const mockAgent = {
+        app: {
+          bsky: {
+            graph: {
+              getFollows: getFollowsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const mutuals = await fetchAllMutuals(mockAgent, 'did:plc:user');
+      expect(getFollowsMock).toHaveBeenCalledTimes(2);
+      expect(mutuals).toHaveLength(2);
+    });
+
+    it('terminates pagination when follows is empty even if cursor is provided', async () => {
+      const getFollowsMock = vi.fn().mockResolvedValue({
+        data: {
+          cursor: 'extraCursor',
+          follows: []
+        }
+      });
+      const mockAgent = {
+        app: {
+          bsky: {
+            graph: {
+              getFollows: getFollowsMock
+            }
+          }
+        }
+      } as unknown as Agent;
+
+      const mutuals = await fetchAllMutuals(mockAgent, 'did:plc:user');
+      expect(getFollowsMock).toHaveBeenCalledTimes(1);
+      expect(mutuals).toEqual([]);
+    });
   });
 
   describe('fetchAllUserBlocks', () => {
@@ -303,8 +353,8 @@ afterEach(() => {
       const fetchSpy = vi.fn();
       global.fetch = fetchSpy;
 
-      const blocks = await fetchAllUserBlocks('did:plc:cachedUser');
-      expect(blocks).toEqual(['did:plc:target1', 'did:plc:target2']);
+      const result = await fetchAllUserBlocks('did:plc:cachedUser');
+      expect(result).toEqual({ blockedDids: ['did:plc:target1', 'did:plc:target2'], isComplete: true });
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -312,8 +362,8 @@ afterEach(() => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       vi.mocked(get).mockRejectedValueOnce(new Error('IDB read failure'));
 
-      const blocks = await fetchAllUserBlocks('did:plc:mutual0');
-      expect(blocks).toEqual(['did:plc:resolvedTarget']);
+      const result = await fetchAllUserBlocks('did:plc:mutual0');
+      expect(result).toEqual({ blockedDids: ['did:plc:resolvedTarget'], isComplete: true });
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'Cache read failed for did:plc:mutual0',
         expect.any(Error)
@@ -327,8 +377,8 @@ afterEach(() => {
         blockedDids: ['did:plc:oldBlock']
       });
 
-      const blocks = await fetchAllUserBlocks('did:plc:mutual0');
-      expect(blocks).toEqual(['did:plc:resolvedTarget']);
+      const result = await fetchAllUserBlocks('did:plc:mutual0');
+      expect(result).toEqual({ blockedDids: ['did:plc:resolvedTarget'], isComplete: true });
     });
 
     it('resolves did:plc: and fetches block records with pagination and parses subjects', async () => {
@@ -369,8 +419,8 @@ afterEach(() => {
         return { ok: false, status: 404 };
       });
 
-      const blocks = await fetchAllUserBlocks('did:plc:paginated');
-      expect(blocks).toEqual(['did:plc:target1', 'did:plc:target2']);
+      const result = await fetchAllUserBlocks('did:plc:paginated');
+      expect(result).toEqual({ blockedDids: ['did:plc:target1', 'did:plc:target2'], isComplete: true });
     });
 
     it('resolves did:web: by fetching .well-known/did.json and parses block records', async () => {
@@ -395,11 +445,11 @@ afterEach(() => {
         return { ok: false, status: 404 };
       });
 
-      const blocks = await fetchAllUserBlocks('did:web:alice.example.com');
-      expect(blocks).toEqual(['did:plc:blockedByWeb']);
+      const result = await fetchAllUserBlocks('did:web:alice.example.com');
+      expect(result).toEqual({ blockedDids: ['did:plc:blockedByWeb'], isComplete: true });
     });
 
-    it('returns empty array if did:plc: has no #atproto_pds or response is not ok', async () => {
+    it('returns error result if did:plc: has no #atproto_pds or response is not ok', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url === 'https://plc.directory/did:plc:nopds') {
           return {
@@ -419,12 +469,12 @@ afterEach(() => {
         return { ok: false };
       });
 
-      expect(await fetchAllUserBlocks('did:plc:nopds')).toEqual([]);
-      expect(await fetchAllUserBlocks('did:plc:noservice')).toEqual([]);
-      expect(await fetchAllUserBlocks('did:plc:notok')).toEqual([]);
+      expect(await fetchAllUserBlocks('did:plc:nopds')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'invalid_pds' });
+      expect(await fetchAllUserBlocks('did:plc:noservice')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'invalid_pds' });
+      expect(await fetchAllUserBlocks('did:plc:notok')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'pds_offline' });
     });
 
-    it('returns empty array if did:web: has no #atproto_pds or response is not ok', async () => {
+    it('returns error result if did:web: has no #atproto_pds or response is not ok', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url === 'https://nopds.com/.well-known/did.json') {
           return {
@@ -444,13 +494,13 @@ afterEach(() => {
         return { ok: false };
       });
 
-      expect(await fetchAllUserBlocks('did:web:nopds.com')).toEqual([]);
-      expect(await fetchAllUserBlocks('did:web:noservice.com')).toEqual([]);
-      expect(await fetchAllUserBlocks('did:web:notok.com')).toEqual([]);
+      expect(await fetchAllUserBlocks('did:web:nopds.com')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'invalid_pds' });
+      expect(await fetchAllUserBlocks('did:web:noservice.com')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'invalid_pds' });
+      expect(await fetchAllUserBlocks('did:web:notok.com')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'pds_offline' });
     });
 
-    it('returns empty array if DID format is unsupported (not did:plc or did:web)', async () => {
-      expect(await fetchAllUserBlocks('did:key:z6Mku...')).toEqual([]);
+    it('returns error result if DID format is unsupported (not did:plc or did:web)', async () => {
+      expect(await fetchAllUserBlocks('did:key:z6Mku...')).toEqual({ blockedDids: [], isComplete: false, errorReason: 'invalid_pds' });
     });
 
     it('handles 429 status code with retry and backoff, succeeding on retry', async () => {
@@ -481,13 +531,13 @@ afterEach(() => {
 
       const promise = fetchAllUserBlocks('did:plc:rateLimited', 3);
       await vi.runAllTimersAsync();
-      const blocks = await promise;
-      expect(blocks).toEqual(['did:plc:retriedTarget']);
+      const result = await promise;
+      expect(result).toEqual({ blockedDids: ['did:plc:retriedTarget'], isComplete: true });
       expect(callCount).toBe(2);
       vi.useRealTimers();
     });
 
-    it('handles 429 status code exceeding maxRetries, returning current blocks', async () => {
+    it('handles 429 status code exceeding maxRetries, returning current blocks with rate_limit error reason', async () => {
       vi.useFakeTimers();
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url.includes('plc.directory')) {
@@ -506,12 +556,12 @@ afterEach(() => {
 
       const promise = fetchAllUserBlocks('did:plc:rateLimitedForever', 1);
       await vi.runAllTimersAsync();
-      const blocks = await promise;
-      expect(blocks).toEqual([]);
+      const result = await promise;
+      expect(result).toEqual({ blockedDids: [], isComplete: false, errorReason: 'rate_limit' });
       vi.useRealTimers();
     });
 
-    it('handles !response.ok from PDS (e.g. 404, 500) and returns current blocks', async () => {
+    it('handles !response.ok from PDS (e.g. 404, 500) and returns current blocks with pds_offline error reason', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url.includes('plc.directory')) {
           return {
@@ -527,11 +577,11 @@ afterEach(() => {
         return { ok: false };
       });
 
-      const blocks = await fetchAllUserBlocks('did:plc:serverError');
-      expect(blocks).toEqual([]);
+      const result = await fetchAllUserBlocks('did:plc:serverError');
+      expect(result).toEqual({ blockedDids: [], isComplete: false, errorReason: 'pds_offline' });
     });
 
-    it('handles missing records in response and returns current blocks', async () => {
+    it('handles missing records in response and returns current blocks with pds_offline error reason', async () => {
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
         if (url.includes('plc.directory')) {
           return {
@@ -547,8 +597,8 @@ afterEach(() => {
         return { ok: false };
       });
 
-      const blocks = await fetchAllUserBlocks('did:plc:noRecords');
-      expect(blocks).toEqual([]);
+      const result = await fetchAllUserBlocks('did:plc:noRecords');
+      expect(result).toEqual({ blockedDids: [], isComplete: false, errorReason: 'pds_offline' });
     });
 
     it('handles non-429 exception thrown during record fetching loop and returns current blocks', async () => {
@@ -573,16 +623,16 @@ afterEach(() => {
         return { ok: false };
       });
 
-      const blocks = await fetchAllUserBlocks('did:plc:jsonError');
-      expect(blocks).toEqual([]);
+      const result = await fetchAllUserBlocks('did:plc:jsonError');
+      expect(result).toEqual({ blockedDids: [], isComplete: false, errorReason: 'pds_offline' });
     });
 
     it('warns when cache write throws an error', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       vi.mocked(set).mockRejectedValueOnce(new Error('IDB write failure'));
 
-      const blocks = await fetchAllUserBlocks('did:plc:mutual0');
-      expect(blocks).toEqual(['did:plc:resolvedTarget']);
+      const result = await fetchAllUserBlocks('did:plc:mutual0');
+      expect(result).toEqual({ blockedDids: ['did:plc:resolvedTarget'], isComplete: true });
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'Cache write failed for did:plc:mutual0',
         expect.any(Error)
@@ -590,18 +640,100 @@ afterEach(() => {
       consoleWarnSpy.mockRestore();
     });
 
-    it('handles top-level fetch exception (e.g. network failure)', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    it('handles 429 status code on paginated request (page 2) exceeding maxRetries, returning partial blocks without infinite loop', async () => {
+      vi.useFakeTimers();
+      let callCount = 0;
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          callCount++;
+          if (!url.includes('cursor=')) {
+            // First page succeeds
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                cursor: 'page2cursor',
+                records: [{ value: { subject: 'did:plc:page1Subject' } }]
+              })
+            };
+          } else {
+            // Second page always 429s
+            return { status: 429, ok: false };
+          }
+        }
+        return { ok: false };
+      });
 
-      const blocks = await fetchAllUserBlocks('did:plc:networkFail');
-      expect(blocks).toEqual([]);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error fetching blocks for',
-        'did:plc:networkFail',
-        expect.any(Error)
-      );
-      consoleErrorSpy.mockRestore();
+      const promise = fetchAllUserBlocks('did:plc:rateLimitedPage2', 2);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+      expect(result).toEqual({ blockedDids: ['did:plc:page1Subject'], isComplete: false, errorReason: 'rate_limit' });
+      // 1 call for page 1, 2 calls (initial + retry) for page 2
+      expect(callCount).toBe(3);
+      vi.useRealTimers();
+    });
+
+    it('handles duplicate or looping cursor from broken PDS without infinite loop', async () => {
+      let callCount = 0;
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          callCount++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              cursor: 'sameCursor',
+              records: [{ value: { subject: `did:plc:sub_${callCount}` } }]
+            })
+          };
+        }
+        return { ok: false };
+      });
+
+      const result = await fetchAllUserBlocks('did:plc:duplicateCursor');
+      expect(callCount).toBe(2); // Initial call (returns sameCursor), second call with cursor=sameCursor terminates
+      expect(result.blockedDids).toHaveLength(2);
+      expect(result.isComplete).toBe(true);
+    });
+
+    it('handles invalid or non-http/https PDS endpoint gracefully', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'ftp://invalid-protocol.com' }]
+            })
+          };
+        }
+        return { ok: false };
+      });
+
+      const result = await fetchAllUserBlocks('did:plc:invalidPds');
+      expect(result).toEqual({ blockedDids: [], isComplete: false, errorReason: 'invalid_pds' });
+    });
+
+    it('handles top-level fetch exception (e.g. network failure or timeout abort)', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error / AbortError'));
+
+      const result = await fetchAllUserBlocks('did:plc:networkFail');
+      expect(result).toEqual({ blockedDids: [], isComplete: false, errorReason: 'pds_offline' });
     });
   });
 
@@ -642,7 +774,7 @@ afterEach(() => {
       } as unknown as Agent;
 
       const progressCallback = vi.fn();
-      const blockers = await findMutualsBlockingTarget(
+      const { blockingMutuals, incompleteMoots } = await findMutualsBlockingTarget(
         mockAgent,
         'britculpsapp.bsky.social',
         mutuals,
@@ -651,8 +783,9 @@ afterEach(() => {
 
       expect(getProfileMock).toHaveBeenCalledWith({ actor: 'britculpsapp.bsky.social' });
       expect(progressCallback).toHaveBeenCalledWith({ scanned: expect.any(Number), total: 3 });
-      expect(blockers).toHaveLength(2);
-      expect(blockers).toEqual(expect.arrayContaining([m0, m2]));
+      expect(blockingMutuals).toHaveLength(2);
+      expect(blockingMutuals).toEqual(expect.arrayContaining([m0, m2]));
+      expect(incompleteMoots).toEqual([]);
     });
 
     it('works without onProgress callback and falls back to targetInput if resolution fails', async () => {
@@ -670,15 +803,66 @@ afterEach(() => {
         com: { atproto: { repo: { listRecords: listRecordsMock } } }
       } as unknown as Agent;
 
-      const blockers = await findMutualsBlockingTarget(
+      const { blockingMutuals, incompleteMoots } = await findMutualsBlockingTarget(
         mockAgent,
         'did:plc:unresolvedTarget',
         [m0]
       );
 
-      expect(blockers).toEqual([]);
+      expect(blockingMutuals).toEqual([]);
+      expect(incompleteMoots).toEqual([]);
     });
 
+    it('continues and reports progress for all mutuals even if fetchAllUserBlocks fails/warns for some mutuals', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const m1: MutualProfile = { did: 'did:plc:failUser', handle: 'fail.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:mutual0', handle: 'mutual0.bsky.social' };
+
+      const getProfileMock = vi.fn().mockResolvedValue({
+        data: { did: 'did:plc:resolvedTarget' }
+      });
+
+      const mockAgent = {
+        getProfile: getProfileMock
+      } as unknown as Agent;
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('did:plc:failUser')) {
+          throw new Error('PDS connection failed');
+        }
+        if (url.includes('plc.directory/did:plc:mutual0')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          return {
+            ok: true,
+            json: async () => ({
+              records: [{ value: { subject: 'did:plc:resolvedTarget' } }]
+            })
+          };
+        }
+        return { ok: false };
+      });
+
+      const progressCallback = vi.fn();
+      const { blockingMutuals, incompleteMoots } = await findMutualsBlockingTarget(
+        mockAgent,
+        'did:plc:resolvedTarget',
+        [m1, m2],
+        progressCallback
+      );
+
+      expect(progressCallback).toHaveBeenCalledWith({ scanned: 2, total: 2 });
+      expect(blockingMutuals).toEqual([m2]);
+      expect(incompleteMoots).toHaveLength(1);
+      expect(incompleteMoots[0].moot).toEqual(m1);
+      consoleWarnSpy.mockRestore();
+    });
   });
 
   describe('findTopBlockersAmongMutuals', () => {
@@ -733,9 +917,10 @@ afterEach(() => {
       } as unknown as Agent;
 
       const progressCallback = vi.fn();
-      const summaries = await findTopBlockersAmongMutuals(mockAgent, mutuals, progressCallback);
+      const { summaries, incompleteMoots } = await findTopBlockersAmongMutuals(mockAgent, mutuals, progressCallback);
 
       expect(progressCallback).toHaveBeenCalledWith({ scanned: expect.any(Number), total: 3 });
+      expect(incompleteMoots).toEqual([]);
 
       // m1 blocks m2 and m3 -> 2 blocked mutuals
       // m2 blocks m3 -> 1 blocked mutual
@@ -785,7 +970,7 @@ afterEach(() => {
       } as unknown as Agent;
 
       // Force profile refresh lookup by passing m2 with incomplete profile
-      const summaries = await findTopBlockersAmongMutuals(mockAgent, [m1, { did: 'did:plc:m2', handle: 'm2.bsky.social' }]);
+      const { summaries } = await findTopBlockersAmongMutuals(mockAgent, [m1, { did: 'did:plc:m2', handle: 'm2.bsky.social' }]);
       expect(summaries.length).toBe(1);
       expect(summaries[0].blocker).toEqual(m1);
       expect(summaries[0].blockedMutuals[0]).toEqual({
@@ -821,7 +1006,7 @@ afterEach(() => {
         getProfiles: getProfilesMock
       } as unknown as Agent;
 
-      const summaries = await findTopBlockersAmongMutuals(mockAgent, [
+      const { summaries } = await findTopBlockersAmongMutuals(mockAgent, [
         { did: 'did:plc:blockerX', handle: 'blockerX.bsky.social' },
         { did: 'did:plc:blockedY', handle: 'blockedY.bsky.social' }
       ]);
@@ -874,7 +1059,7 @@ afterEach(() => {
         }
       } as unknown as Agent;
 
-      const summaries = await findTopBlockersAmongMutuals(mockAgent, mutuals);
+      const { summaries } = await findTopBlockersAmongMutuals(mockAgent, mutuals);
 
       expect(summaries.length).toBe(1);
       expect(summaries[0].blockedMutuals[0]).toEqual({
@@ -883,6 +1068,56 @@ afterEach(() => {
       });
     });
 
+    it('continues and reports progress for all mutuals even if fetchAllUserBlocks fails/warns for some mutuals', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const m1: MutualProfile = { did: 'did:plc:failM1', handle: 'failM1.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:m2', handle: 'm2.bsky.social' };
+      const m3: MutualProfile = { did: 'did:plc:m3', handle: 'm3.bsky.social' };
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('did:plc:failM1')) {
+          throw new Error('Network error on failM1');
+        }
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          if (url.includes('repo=did%3Aplc%3Am2') || url.includes('repo=did:plc:m2')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                records: [{ value: { subject: 'did:plc:m3' } }]
+              })
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ records: [] })
+          };
+        }
+        return { ok: false };
+      });
+
+      const mockAgent = {} as unknown as Agent;
+
+      const progressCallback = vi.fn();
+      const { summaries, incompleteMoots } = await findTopBlockersAmongMutuals(mockAgent, [m1, m2, m3], progressCallback);
+
+      expect(progressCallback).toHaveBeenCalledWith({ scanned: 3, total: 3 });
+      expect(summaries.length).toBe(1);
+      expect(summaries[0].blocker).toEqual(m2);
+      expect(summaries[0].blockedMutuals).toEqual([m3]);
+      expect(incompleteMoots).toHaveLength(1);
+      expect(incompleteMoots[0].moot).toEqual(m1);
+      consoleWarnSpy.mockRestore();
+    });
   });
 
   describe('findMutualsBlockingMutuals', () => {
@@ -1031,9 +1266,10 @@ afterEach(() => {
       } as unknown as Agent;
 
       const progressCallback = vi.fn();
-      const summaries = await findTopBlockedAmongMutuals(mockAgent, mutuals, progressCallback);
+      const { summaries, incompleteMoots } = await findTopBlockedAmongMutuals(mockAgent, mutuals, progressCallback);
 
       expect(progressCallback).toHaveBeenCalledWith({ scanned: expect.any(Number), total: 3 });
+      expect(incompleteMoots).toEqual([]);
 
       expect(summaries.length).toBe(2);
       expect(summaries[0].blocked).toEqual(m3);
@@ -1084,7 +1320,7 @@ afterEach(() => {
         getProfiles: getProfilesMock
       } as unknown as Agent;
 
-      const summaries = await findTopBlockedAmongMutuals(mockAgent, [
+      const { summaries } = await findTopBlockedAmongMutuals(mockAgent, [
         m1,
         { did: 'did:plc:m2', handle: 'm2.bsky.social' }
       ]);
@@ -1123,7 +1359,7 @@ afterEach(() => {
         getProfiles: getProfilesMock
       } as unknown as Agent;
 
-      const summaries = await findTopBlockedAmongMutuals(mockAgent, [
+      const { summaries } = await findTopBlockedAmongMutuals(mockAgent, [
         { did: 'did:plc:blockerX', handle: 'blockerX.bsky.social' },
         { did: 'did:plc:blockedY', handle: 'blockedY.bsky.social' }
       ]);
@@ -1176,13 +1412,64 @@ afterEach(() => {
         }
       } as unknown as Agent;
 
-      const summaries = await findTopBlockedAmongMutuals(mockAgent, mutuals);
+      const { summaries } = await findTopBlockedAmongMutuals(mockAgent, mutuals);
 
       expect(summaries.length).toBe(1);
       expect(summaries[0].blocked).toEqual({
         did: 'did:plc:missing',
         handle: 'missing.bsky.social'
       });
+    });
+
+    it('continues and reports progress for all mutuals even if fetchAllUserBlocks fails/warns for some mutuals', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const m1: MutualProfile = { did: 'did:plc:failM1', handle: 'failM1.bsky.social' };
+      const m2: MutualProfile = { did: 'did:plc:m2', handle: 'm2.bsky.social' };
+      const m3: MutualProfile = { did: 'did:plc:m3', handle: 'm3.bsky.social' };
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('did:plc:failM1')) {
+          throw new Error('Network error on failM1');
+        }
+        if (url.includes('plc.directory')) {
+          return {
+            ok: true,
+            json: async () => ({
+              service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }]
+            })
+          };
+        }
+        if (url.includes('com.atproto.repo.listRecords')) {
+          if (url.includes('repo=did%3Aplc%3Am2') || url.includes('repo=did:plc:m2')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                records: [{ value: { subject: 'did:plc:m3' } }]
+              })
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ records: [] })
+          };
+        }
+        return { ok: false };
+      });
+
+      const mockAgent = {} as unknown as Agent;
+
+      const progressCallback = vi.fn();
+      const { summaries, incompleteMoots } = await findTopBlockedAmongMutuals(mockAgent, [m1, m2, m3], progressCallback);
+
+      expect(progressCallback).toHaveBeenCalledWith({ scanned: 3, total: 3 });
+      expect(summaries.length).toBe(1);
+      expect(summaries[0].blocked).toEqual(m3);
+      expect(summaries[0].blockedByMutuals).toEqual([m2]);
+      expect(incompleteMoots).toHaveLength(1);
+      expect(incompleteMoots[0].moot).toEqual(m1);
+      consoleWarnSpy.mockRestore();
     });
   });
 

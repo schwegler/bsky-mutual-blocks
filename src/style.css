@@ -409,3 +409,94 @@ button:disabled {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Scan Warnings & Incomplete Moots Notice */
+.scan-warning-card {
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.875rem 1.25rem;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.warning-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.warning-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #fde047;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.warning-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-warning-action {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  background: rgba(234, 179, 8, 0.18);
+  color: #fef08a;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-warning-action:hover:not(:disabled) {
+  background: rgba(234, 179, 8, 0.3);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.incomplete-moots-container {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(234, 179, 8, 0.2);
+}
+
+.incomplete-moots-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.incomplete-moot-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+}
+
+.incomplete-moot-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reason-badge {
+  font-size: 0.75rem;
+  color: #fca5a5;
+  background: rgba(153, 27, 27, 0.35);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}

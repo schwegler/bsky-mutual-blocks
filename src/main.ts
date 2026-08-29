@@ -9,7 +9,9 @@ import {
   resolveActor,
   MutualProfile,
   MutualBlockerSummary,
-  MutualBlockedSummary
+  MutualBlockedSummary,
+  MootScanError,
+  getErrorReasonMessage
 } from './bsky';
 import { AppBskyActorDefs } from '@atproto/api';
 
@@ -207,6 +209,84 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+function renderScanWarningElement(
+  incompleteMoots: MootScanError[],
+  onRetry?: () => Promise<void>
+): HTMLElement | null {
+  if (!incompleteMoots || incompleteMoots.length === 0) return null;
+
+  const card = document.createElement('div');
+  card.className = 'scan-warning-card';
+  card.id = 'scan-warning-card';
+
+  const count = incompleteMoots.length;
+  card.innerHTML = `
+    <div class="warning-header">
+      <div class="warning-title-wrap">
+        <span>⚠️</span>
+        <span>${count} moot${count === 1 ? '' : 's'} could not be fully checked (rate limit or offline server)</span>
+      </div>
+      <div class="warning-actions">
+        <button type="button" class="btn-warning-action" id="toggle-warning-details-btn">
+          View Details &#9660;
+        </button>
+        ${onRetry ? `<button type="button" class="btn-warning-action" id="retry-incomplete-btn">🔄 Retry (${count})</button>` : ''}
+      </div>
+    </div>
+    <div class="incomplete-moots-container hidden" id="incomplete-moots-container">
+      <ul class="incomplete-moots-list">
+        ${incompleteMoots
+          .map((item) => {
+            const handle = escapeHtml(item.moot.handle);
+            const reasonMsg = escapeHtml(getErrorReasonMessage(item.reason));
+            const partialText = item.partialCount > 0 ? ` (${item.partialCount} blocks scanned)` : '';
+            return `
+              <li class="incomplete-moot-item">
+                <div class="incomplete-moot-info">
+                  <a href="https://bsky.app/profile/${encodeURIComponent(item.moot.handle)}" target="_blank" rel="noopener noreferrer" class="handle-link">
+                    @${handle}
+                  </a>
+                </div>
+                <span class="reason-badge">${reasonMsg}${partialText}</span>
+              </li>
+            `;
+          })
+          .join('')}
+      </ul>
+    </div>
+  `;
+
+  const toggleBtn = card.querySelector('#toggle-warning-details-btn') as HTMLButtonElement;
+  const container = card.querySelector('#incomplete-moots-container') as HTMLElement;
+  toggleBtn?.addEventListener('click', () => {
+    const isHidden = container.classList.contains('hidden');
+    if (isHidden) {
+      container.classList.remove('hidden');
+      toggleBtn.innerHTML = 'Hide Details &#9650;';
+    } else {
+      container.classList.add('hidden');
+      toggleBtn.innerHTML = 'View Details &#9660;';
+    }
+  });
+
+  const retryBtn = card.querySelector('#retry-incomplete-btn') as HTMLButtonElement;
+  if (retryBtn && onRetry) {
+    retryBtn.addEventListener('click', async () => {
+      retryBtn.disabled = true;
+      retryBtn.textContent = 'Retrying...';
+      try {
+        await onRetry();
+      } catch (err: any) {
+        console.error('Retry error:', err);
+        retryBtn.disabled = false;
+        retryBtn.textContent = `🔄 Retry (${count})`;
+      }
+    });
+  }
+
+  return card;
+}
+
 // Run check
 checkBtn.addEventListener('click', async () => {
   const agent = getAgent();
@@ -268,7 +348,7 @@ checkBtn.addEventListener('click', async () => {
   scanTopBlockedBtn.disabled = true;
 
   try {
-    const blockers = await findMutualsBlockingTarget(
+    const { blockingMutuals, incompleteMoots } = await findMutualsBlockingTarget(
       agent,
       finalTargetDid,
       cachedMutuals,
@@ -279,8 +359,21 @@ checkBtn.addEventListener('click', async () => {
       }
     );
 
-    statusContainer.textContent = `Scan complete. Found ${blockers.length} moot(s) blocking @${targetInput.value.trim().replace(/^@/, '')}.`;
-    renderResults(blockers);
+    statusContainer.textContent = `Scan complete. Found ${blockingMutuals.length} moot(s) blocking @${targetInput.value.trim().replace(/^@/, '')}.`;
+    
+    const handleRetry = async () => {
+      const retryMoots = incompleteMoots.map((im) => im.moot);
+      const retryResult = await findMutualsBlockingTarget(agent, finalTargetDid, retryMoots);
+      const combined = [...blockingMutuals];
+      for (const b of retryResult.blockingMutuals) {
+        if (!combined.some((cb) => cb.did === b.did)) {
+          combined.push(b);
+        }
+      }
+      renderResults(combined, retryResult.incompleteMoots);
+    };
+
+    renderResults(blockingMutuals, incompleteMoots, incompleteMoots.length > 0 ? handleRetry : undefined);
   } catch (err: any) {
     console.error('Scan Error:', err);
     statusContainer.textContent = `Error performing block check: ${err.message || err}`;
@@ -330,7 +423,7 @@ scanMutualsBtn.addEventListener('click', async () => {
   scanTopBlockedBtn.disabled = true;
 
   try {
-    const topBlockers = await findTopBlockersAmongMutuals(
+    const { summaries, incompleteMoots } = await findTopBlockersAmongMutuals(
       agent,
       cachedMutuals,
       ({ scanned, total }) => {
@@ -340,8 +433,14 @@ scanMutualsBtn.addEventListener('click', async () => {
       }
     );
 
-    statusContainer.textContent = `Scan complete. Found ${topBlockers.length} moot(s) blocking other moots.`;
-    renderMutualBlockersResults(topBlockers);
+    statusContainer.textContent = `Scan complete. Found ${summaries.length} moot(s) blocking other moots.`;
+
+    const handleRetry = async () => {
+      const retryResult = await findTopBlockersAmongMutuals(agent, cachedMutuals!);
+      renderMutualBlockersResults(retryResult.summaries, retryResult.incompleteMoots);
+    };
+
+    renderMutualBlockersResults(summaries, incompleteMoots, incompleteMoots.length > 0 ? handleRetry : undefined);
   } catch (err: any) {
     console.error('Mutual Scan Error:', err);
     statusContainer.textContent = `Error: ${err.message || String(err)}`;
@@ -391,7 +490,7 @@ scanTopBlockedBtn.addEventListener('click', async () => {
   scanTopBlockedBtn.disabled = true;
 
   try {
-    const topBlocked = await findTopBlockedAmongMutuals(
+    const { summaries, incompleteMoots } = await findTopBlockedAmongMutuals(
       agent,
       cachedMutuals,
       ({ scanned, total }) => {
@@ -401,8 +500,14 @@ scanTopBlockedBtn.addEventListener('click', async () => {
       }
     );
 
-    statusContainer.textContent = `Scan complete. Found ${topBlocked.length} moot(s) blocked by other moots.`;
-    renderTopBlockedResults(topBlocked);
+    statusContainer.textContent = `Scan complete. Found ${summaries.length} moot(s) blocked by other moots.`;
+
+    const handleRetry = async () => {
+      const retryResult = await findTopBlockedAmongMutuals(agent, cachedMutuals!);
+      renderTopBlockedResults(retryResult.summaries, retryResult.incompleteMoots);
+    };
+
+    renderTopBlockedResults(summaries, incompleteMoots, incompleteMoots.length > 0 ? handleRetry : undefined);
   } catch (err: any) {
     console.error('Top Blocked Scan Error:', err);
     statusContainer.textContent = `Error: ${err.message || String(err)}`;
@@ -415,26 +520,42 @@ scanTopBlockedBtn.addEventListener('click', async () => {
   }
 });
 
-function renderResults(blockers: MutualProfile[]) {
+function renderResults(
+  blockers: MutualProfile[],
+  incompleteMoots?: MootScanError[],
+  onRetry?: () => Promise<void>
+) {
+  resultsContainer.innerHTML = '';
+
+  const warningElem = incompleteMoots && incompleteMoots.length > 0
+    ? renderScanWarningElement(incompleteMoots, onRetry)
+    : null;
+  if (warningElem) {
+    resultsContainer.appendChild(warningElem);
+  }
+
   if (blockers.length === 0) {
-    resultsContainer.innerHTML = `<p class="no-results">None of your moots block this account.</p>`;
+    const noResultsP = document.createElement('p');
+    noResultsP.className = 'no-results';
+    noResultsP.textContent = 'None of your moots block this account.';
+    resultsContainer.appendChild(noResultsP);
     return;
   }
 
-  resultsContainer.innerHTML = `
-    <ul class="blocker-list">
-      ${blockers
-        .map((b, idx) => {
-          const profileUrl = `https://bsky.app/profile/${encodeURIComponent(b.handle)}`;
-          const avatarImg = b.avatar
-            ? `<img src="${b.avatar}" class="avatar-md" alt="${escapeHtml(b.handle)} avatar" />`
-            : `<div class="avatar-md avatar-placeholder"></div>`;
-          const displayName = escapeHtml(b.displayName || b.handle);
-          const handle = escapeHtml(b.handle);
-          
-          const delay = Math.min(idx * 50, 500);
+  const listElement = document.createElement('ul');
+  listElement.className = 'blocker-list';
+  listElement.innerHTML = blockers
+    .map((b, idx) => {
+      const profileUrl = `https://bsky.app/profile/${encodeURIComponent(b.handle)}`;
+      const avatarImg = b.avatar
+        ? `<img src="${b.avatar}" class="avatar-md" alt="${escapeHtml(b.handle)} avatar" />`
+        : `<div class="avatar-md avatar-placeholder"></div>`;
+      const displayName = escapeHtml(b.displayName || b.handle);
+      const handle = escapeHtml(b.handle);
+      
+      const delay = Math.min(idx * 50, 500);
 
-          return `
+      return `
         <li class="blocker-card" style="animation-delay: ${delay}ms;">
           <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
             ${avatarImg}
@@ -448,15 +569,31 @@ function renderResults(blockers: MutualProfile[]) {
           <span class="badge-block">Blocks Target</span>
         </li>
       `;
-        })
-        .join('')}
-    </ul>
-  `;
+    })
+    .join('');
+
+  resultsContainer.appendChild(listElement);
 }
 
-function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
+function renderMutualBlockersResults(
+  summaries: MutualBlockerSummary[],
+  incompleteMoots?: MootScanError[],
+  onRetry?: () => Promise<void>
+) {
+  resultsContainer.innerHTML = '';
+
+  const warningElem = incompleteMoots && incompleteMoots.length > 0
+    ? renderScanWarningElement(incompleteMoots, onRetry)
+    : null;
+  if (warningElem) {
+    resultsContainer.appendChild(warningElem);
+  }
+
   if (summaries.length === 0) {
-    resultsContainer.innerHTML = `<p class="no-results">None of your moots block any of your other moots.</p>`;
+    const noResultsP = document.createElement('p');
+    noResultsP.className = 'no-results';
+    noResultsP.textContent = 'None of your moots block any of your other moots.';
+    resultsContainer.appendChild(noResultsP);
     return;
   }
 
@@ -539,9 +676,25 @@ function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
   });
 }
 
-function renderTopBlockedResults(summaries: MutualBlockedSummary[]) {
+function renderTopBlockedResults(
+  summaries: MutualBlockedSummary[],
+  incompleteMoots?: MootScanError[],
+  onRetry?: () => Promise<void>
+) {
+  resultsContainer.innerHTML = '';
+
+  const warningElem = incompleteMoots && incompleteMoots.length > 0
+    ? renderScanWarningElement(incompleteMoots, onRetry)
+    : null;
+  if (warningElem) {
+    resultsContainer.appendChild(warningElem);
+  }
+
   if (summaries.length === 0) {
-    resultsContainer.innerHTML = `<p class="no-results">None of your moots are blocked by any of your other moots.</p>`;
+    const noResultsP = document.createElement('p');
+    noResultsP.className = 'no-results';
+    noResultsP.textContent = 'None of your moots are blocked by any of your other moots.';
+    resultsContainer.appendChild(noResultsP);
     return;
   }
 

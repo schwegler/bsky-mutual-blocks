@@ -35,6 +35,50 @@ export interface MutualBlockedEntry {
   count: number;
 }
 
+export type BlockFetchErrorReason = 'rate_limit' | 'timeout' | 'pds_offline' | 'invalid_pds' | 'unknown';
+
+export interface UserBlocksResult {
+  blockedDids: string[];
+  isComplete: boolean;
+  errorReason?: BlockFetchErrorReason;
+}
+
+export interface MootScanError {
+  moot: MutualProfile;
+  reason: BlockFetchErrorReason;
+  partialCount: number;
+}
+
+export interface TargetScanResult {
+  blockingMutuals: MutualProfile[];
+  incompleteMoots: MootScanError[];
+}
+
+export interface TopBlockersScanResult {
+  summaries: MutualBlockerSummary[];
+  incompleteMoots: MootScanError[];
+}
+
+export interface TopBlockedScanResult {
+  summaries: MutualBlockedSummary[];
+  incompleteMoots: MootScanError[];
+}
+
+export function getErrorReasonMessage(reason?: BlockFetchErrorReason): string {
+  switch (reason) {
+    case 'rate_limit':
+      return 'Rate limit reached during scan';
+    case 'timeout':
+      return 'Server timed out (10s limit exceeded)';
+    case 'pds_offline':
+      return 'PDS server unreachable or returned error';
+    case 'invalid_pds':
+      return 'Invalid or unsupported PDS endpoint';
+    default:
+      return 'Could not complete scan';
+  }
+}
+
 /**
  * Cache structure for user block lists.
  */
@@ -113,12 +157,12 @@ export async function mapConcurrent<T, R>(
 export async function fetchAllUserBlocks(
   repoDid: string,
   maxRetries = 3
-): Promise<string[]> {
+): Promise<UserBlocksResult> {
   const cacheKey = `blocks_${repoDid}`;
   try {
     const cached = await get<BlockCacheEntry>(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      return cached.blockedDids;
+      return { blockedDids: cached.blockedDids, isComplete: true };
     }
   } catch (err) {
     console.warn(`Cache read failed for ${repoDid}`, err);
@@ -130,31 +174,61 @@ export async function fetchAllUserBlocks(
     let pdsUrl: string | undefined;
 
     if (repoDid.startsWith('did:plc:')) {
-      const res = await fetch(`https://plc.directory/${repoDid}`);
-      if (res.ok) {
-        const doc = await res.json();
-        const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
-        if (pdsService?.serviceEndpoint) {
-          pdsUrl = pdsService.serviceEndpoint;
+      try {
+        const res = await fetch(`https://plc.directory/${repoDid}`, {
+          signal: AbortSignal.timeout(10000)
+        });
+        if (res.ok) {
+          const doc = await res.json();
+          const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
+          if (pdsService?.serviceEndpoint) {
+            pdsUrl = pdsService.serviceEndpoint;
+          }
+        } else {
+          return { blockedDids, isComplete: false, errorReason: 'pds_offline' };
         }
+      } catch (err: any) {
+        return {
+          blockedDids,
+          isComplete: false,
+          errorReason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'pds_offline'
+        };
       }
     } else if (repoDid.startsWith('did:web:')) {
       const domain = repoDid.replace('did:web:', '');
-      const res = await fetch(`https://${domain}/.well-known/did.json`);
-      if (res.ok) {
-        const doc = await res.json();
-        const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
-        if (pdsService?.serviceEndpoint) {
-          pdsUrl = pdsService.serviceEndpoint;
+      try {
+        const res = await fetch(`https://${domain}/.well-known/did.json`, {
+          signal: AbortSignal.timeout(10000)
+        });
+        if (res.ok) {
+          const doc = await res.json();
+          const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
+          if (pdsService?.serviceEndpoint) {
+            pdsUrl = pdsService.serviceEndpoint;
+          }
+        } else {
+          return { blockedDids, isComplete: false, errorReason: 'pds_offline' };
         }
+      } catch (err: any) {
+        return {
+          blockedDids,
+          isComplete: false,
+          errorReason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'pds_offline'
+        };
       }
+    } else {
+      return { blockedDids, isComplete: false, errorReason: 'invalid_pds' };
     }
 
-    if (!pdsUrl) {
-      return blockedDids;
+    if (!pdsUrl || (!pdsUrl.startsWith('http://') && !pdsUrl.startsWith('https://'))) {
+      return { blockedDids, isComplete: false, errorReason: 'invalid_pds' };
     }
+
+    pdsUrl = pdsUrl.replace(/\/+$/, '');
 
     let cursor: string | undefined;
+    const seenCursors = new Set<string>();
+    let errorReason: BlockFetchErrorReason | undefined;
 
     do {
       let attempts = 0;
@@ -162,60 +236,85 @@ export async function fetchAllUserBlocks(
 
       while (attempts < maxRetries && !success) {
         try {
-          let url = `${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${repoDid}&collection=app.bsky.graph.block&limit=100`;
+          let url = `${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(repoDid)}&collection=app.bsky.graph.block&limit=100`;
           if (cursor) {
             url += `&cursor=${encodeURIComponent(cursor)}`;
           }
 
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(10000)
+          });
 
           if (response.status === 429) {
             throw { status: 429 };
           }
 
           if (!response.ok) {
-            return blockedDids;
+            errorReason = 'pds_offline';
+            return { blockedDids, isComplete: false, errorReason };
           }
 
           const data = await response.json();
 
-          if (!data?.records) {
-            return blockedDids;
+          if (!data?.records || !Array.isArray(data.records)) {
+            errorReason = 'pds_offline';
+            return { blockedDids, isComplete: false, errorReason };
           }
 
           for (const record of data.records) {
             const subject = record.value?.subject;
-            if (subject) {
+            if (subject && typeof subject === 'string') {
               blockedDids.push(subject);
             }
           }
 
-          cursor = data.cursor;
+          if (data.cursor && typeof data.cursor === 'string' && data.cursor !== cursor && !seenCursors.has(data.cursor)) {
+            seenCursors.add(data.cursor);
+            cursor = data.cursor;
+          } else {
+            cursor = undefined;
+          }
+
           success = true;
         } catch (err: any) {
           attempts++;
-          if (err?.status === 429 || err?.message?.includes('Rate Limit')) {
+          const isRateLimit = err?.status === 429 || err?.message?.includes('Rate Limit');
+          if (attempts < maxRetries && isRateLimit) {
             const waitMs = Math.pow(2, attempts) * 1000;
             console.warn(`[429] Rate limit on ${repoDid}. Retrying in ${waitMs}ms...`);
             await new Promise(r => setTimeout(r, waitMs));
           } else {
-            return blockedDids;
+            if (isRateLimit) {
+              errorReason = 'rate_limit';
+            } else if (err?.name === 'TimeoutError' || err?.name === 'AbortError' || err?.message?.includes('timeout') || err?.message?.includes('abort')) {
+              errorReason = 'timeout';
+            } else {
+              errorReason = 'pds_offline';
+            }
+            return { blockedDids, isComplete: false, errorReason };
           }
         }
       }
+
+      if (!success) {
+        return { blockedDids, isComplete: false, errorReason: errorReason || 'unknown' };
+      }
     } while (cursor);
     
-    // Save to cache after successfully paginating through all records
+    // Save to cache ONLY after successfully paginating through all records
     try {
       await set(cacheKey, { timestamp: Date.now(), blockedDids });
     } catch (err) {
       console.warn(`Cache write failed for ${repoDid}`, err);
     }
-  } catch (err) {
-    console.error('Error fetching blocks for', repoDid, err);
-  }
 
-  return blockedDids;
+    return { blockedDids, isComplete: true };
+  } catch (err: any) {
+    console.error('Error fetching blocks for', repoDid, err);
+    const errorReason: BlockFetchErrorReason =
+      err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'unknown';
+    return { blockedDids, isComplete: false, errorReason };
+  }
 }
 
 // 1. Search actors for input autocomplete
@@ -239,6 +338,7 @@ export async function fetchAllMutuals(
 ): Promise<MutualProfile[]> {
   const mutuals: MutualProfile[] = [];
   let cursor: string | undefined = undefined;
+  const seenCursors = new Set<string>();
 
   do {
     const res = await agent.app.bsky.graph.getFollows({
@@ -246,6 +346,10 @@ export async function fetchAllMutuals(
       limit: 100,
       cursor
     });
+
+    if (!res.data?.follows || res.data.follows.length === 0) {
+      break;
+    }
 
     for (const follow of res.data.follows) {
       // If viewer.followedBy is present, they follow the authenticated user back
@@ -263,7 +367,13 @@ export async function fetchAllMutuals(
       onProgress(mutuals.length);
     }
 
-    cursor = res.data.cursor;
+    const nextCursor = res.data.cursor;
+    if (nextCursor && typeof nextCursor === 'string' && nextCursor !== cursor && !seenCursors.has(nextCursor)) {
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    } else {
+      cursor = undefined;
+    }
   } while (cursor);
 
   return mutuals;
@@ -276,7 +386,7 @@ export async function findMutualsBlockingTarget(
   mutuals: MutualProfile[],
   onProgress?: (progress: BlockCheckProgress) => void,
   concurrency = 5
-): Promise<MutualProfile[]> {
+): Promise<TargetScanResult> {
   let targetDid = targetInput;
 
   try {
@@ -287,25 +397,44 @@ export async function findMutualsBlockingTarget(
   }
 
   const blockingMutuals: MutualProfile[] = [];
+  const incompleteMoots: MootScanError[] = [];
   let scannedCount = 0;
 
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
-    const blocks = await fetchAllUserBlocks(mutual.did);
-    const isBlocked = blocks.some((b) => b === targetDid);
+    try {
+      const result = await fetchAllUserBlocks(mutual.did);
+      const isBlocked = result.blockedDids.some((b) => b === targetDid);
 
-    if (isBlocked) {
-      blockingMutuals.push(mutual);
-    }
-    scannedCount++;
-    if (onProgress) {
-      onProgress({
-        scanned: scannedCount,
-        total: mutuals.length
+      if (isBlocked) {
+        blockingMutuals.push(mutual);
+      }
+
+      if (!result.isComplete) {
+        incompleteMoots.push({
+          moot: mutual,
+          reason: result.errorReason || 'unknown',
+          partialCount: result.blockedDids.length
+        });
+      }
+    } catch (err: any) {
+      console.warn(`Failed checking blocks for ${mutual.did}`, err);
+      incompleteMoots.push({
+        moot: mutual,
+        reason: 'unknown',
+        partialCount: 0
       });
+    } finally {
+      scannedCount++;
+      if (onProgress) {
+        onProgress({
+          scanned: scannedCount,
+          total: mutuals.length
+        });
+      }
     }
   });
 
-  return blockingMutuals;
+  return { blockingMutuals, incompleteMoots };
 }
 
 // 4. Find which mutuals block the most of your other mutuals
@@ -314,7 +443,7 @@ export async function findTopBlockersAmongMutuals(
   mutuals: MutualProfile[],
   onProgress?: (progress: BlockCheckProgress) => void,
   concurrency = 5
-): Promise<MutualBlockerSummary[]> {
+): Promise<TopBlockersScanResult> {
   const mutualsMap = new Map<string, MutualProfile>();
   for (const m of mutuals) {
     mutualsMap.set(m.did, m);
@@ -322,28 +451,47 @@ export async function findTopBlockersAmongMutuals(
 
   // Map to hold DID -> Set of mutual DIDs that they block
   const blockerMap = new Map<string, Set<string>>();
+  const incompleteMoots: MootScanError[] = [];
   let scannedCount = 0;
 
   // Fetch all blocks concurrently across mutuals
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
-    const blocks = await fetchAllUserBlocks(mutual.did);
-    for (const blockedSubject of blocks) {
-      const matchedMutual = mutualsMap.get(blockedSubject);
-      if (matchedMutual && matchedMutual.did !== mutual.did) {
-        let set = blockerMap.get(mutual.did);
-        if (!set) {
-          set = new Set<string>();
-          blockerMap.set(mutual.did, set);
+    try {
+      const result = await fetchAllUserBlocks(mutual.did);
+      for (const blockedSubject of result.blockedDids) {
+        const matchedMutual = mutualsMap.get(blockedSubject);
+        if (matchedMutual && matchedMutual.did !== mutual.did) {
+          let set = blockerMap.get(mutual.did);
+          if (!set) {
+            set = new Set<string>();
+            blockerMap.set(mutual.did, set);
+          }
+          set.add(matchedMutual.did);
         }
-        set.add(matchedMutual.did);
       }
-    }
-    scannedCount++;
-    if (onProgress) {
-      onProgress({
-        scanned: scannedCount,
-        total: mutuals.length
+
+      if (!result.isComplete) {
+        incompleteMoots.push({
+          moot: mutual,
+          reason: result.errorReason || 'unknown',
+          partialCount: result.blockedDids.length
+        });
+      }
+    } catch (err: any) {
+      console.warn(`Failed checking blocks for ${mutual.did}`, err);
+      incompleteMoots.push({
+        moot: mutual,
+        reason: 'unknown',
+        partialCount: 0
       });
+    } finally {
+      scannedCount++;
+      if (onProgress) {
+        onProgress({
+          scanned: scannedCount,
+          total: mutuals.length
+        });
+      }
     }
   });
 
@@ -397,15 +545,22 @@ export async function findTopBlockersAmongMutuals(
     }
   }
 
-  return sortedEntries.map((entry) => {
-    const blockerProfile = profilesMap.get(entry.did)!;
-    const blockedMutuals = entry.blockedDids.map((bDid) => profilesMap.get(bDid)!);
+  const summaries: MutualBlockerSummary[] = sortedEntries.map((entry) => {
+    const blockerProfile = profilesMap.get(entry.did) || {
+      did: entry.did,
+      handle: entry.did
+    };
+    const blockedMutuals = entry.blockedDids
+      .map((bDid) => profilesMap.get(bDid) || { did: bDid, handle: bDid })
+      .filter(Boolean);
 
     return {
       blocker: blockerProfile,
       blockedMutuals
     };
   });
+
+  return { summaries, incompleteMoots };
 }
 
 /**
@@ -420,14 +575,14 @@ export async function findMutualsBlockingMutuals(
   const mutuals = await fetchAllMutuals(agent, userDid);
   if (mutuals.length === 0) return [];
 
-  const summaries = await findTopBlockersAmongMutuals(
+  const scanResult = await findTopBlockersAmongMutuals(
     agent,
     mutuals,
     onProgress ? (p) => onProgress(p.scanned, p.total) : undefined,
     concurrency
   );
 
-  return summaries.map((s) => ({
+  return scanResult.summaries.map((s) => ({
     blocker: s.blocker,
     blockedMutuals: s.blockedMutuals,
     count: s.blockedMutuals.length
@@ -440,7 +595,7 @@ export async function findTopBlockedAmongMutuals(
   mutuals: MutualProfile[],
   onProgress?: (progress: BlockCheckProgress) => void,
   concurrency = 5
-): Promise<MutualBlockedSummary[]> {
+): Promise<TopBlockedScanResult> {
   const mutualsMap = new Map<string, MutualProfile>();
   for (const m of mutuals) {
     mutualsMap.set(m.did, m);
@@ -448,28 +603,47 @@ export async function findTopBlockedAmongMutuals(
 
   // Map to hold DID -> Set of mutual DIDs that block them
   const blockedMap = new Map<string, Set<string>>();
+  const incompleteMoots: MootScanError[] = [];
   let scannedCount = 0;
 
   // Fetch all blocks concurrently across mutuals
   await mapConcurrent(mutuals, concurrency, async (mutual) => {
-    const blocks = await fetchAllUserBlocks(mutual.did);
-    for (const blockedSubject of blocks) {
-      const matchedMutual = mutualsMap.get(blockedSubject);
-      if (matchedMutual && matchedMutual.did !== mutual.did) {
-        let set = blockedMap.get(matchedMutual.did);
-        if (!set) {
-          set = new Set<string>();
-          blockedMap.set(matchedMutual.did, set);
+    try {
+      const result = await fetchAllUserBlocks(mutual.did);
+      for (const blockedSubject of result.blockedDids) {
+        const matchedMutual = mutualsMap.get(blockedSubject);
+        if (matchedMutual && matchedMutual.did !== mutual.did) {
+          let set = blockedMap.get(matchedMutual.did);
+          if (!set) {
+            set = new Set<string>();
+            blockedMap.set(matchedMutual.did, set);
+          }
+          set.add(mutual.did);
         }
-        set.add(mutual.did);
       }
-    }
-    scannedCount++;
-    if (onProgress) {
-      onProgress({
-        scanned: scannedCount,
-        total: mutuals.length
+
+      if (!result.isComplete) {
+        incompleteMoots.push({
+          moot: mutual,
+          reason: result.errorReason || 'unknown',
+          partialCount: result.blockedDids.length
+        });
+      }
+    } catch (err: any) {
+      console.warn(`Failed checking blocks for ${mutual.did}`, err);
+      incompleteMoots.push({
+        moot: mutual,
+        reason: 'unknown',
+        partialCount: 0
       });
+    } finally {
+      scannedCount++;
+      if (onProgress) {
+        onProgress({
+          scanned: scannedCount,
+          total: mutuals.length
+        });
+      }
     }
   });
 
@@ -523,15 +697,22 @@ export async function findTopBlockedAmongMutuals(
     }
   }
 
-  return sortedEntries.map((entry) => {
-    const blockedProfile = profilesMap.get(entry.did)!;
-    const blockedByMutuals = entry.blockerDids.map((bDid) => profilesMap.get(bDid)!);
+  const summaries: MutualBlockedSummary[] = sortedEntries.map((entry) => {
+    const blockedProfile = profilesMap.get(entry.did) || {
+      did: entry.did,
+      handle: entry.did
+    };
+    const blockedByMutuals = entry.blockerDids
+      .map((bDid) => profilesMap.get(bDid) || { did: bDid, handle: bDid })
+      .filter(Boolean);
 
     return {
       blocked: blockedProfile,
       blockedByMutuals
     };
   });
+
+  return { summaries, incompleteMoots };
 }
 
 /**
@@ -546,14 +727,14 @@ export async function findMutualsBlockedByMutuals(
   const mutuals = await fetchAllMutuals(agent, userDid);
   if (mutuals.length === 0) return [];
 
-  const summaries = await findTopBlockedAmongMutuals(
+  const scanResult = await findTopBlockedAmongMutuals(
     agent,
     mutuals,
     onProgress ? (p) => onProgress(p.scanned, p.total) : undefined,
     concurrency
   );
 
-  return summaries.map((s) => ({
+  return scanResult.summaries.map((s) => ({
     blocked: s.blocked,
     blockedByMutuals: s.blockedByMutuals,
     count: s.blockedByMutuals.length
