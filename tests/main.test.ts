@@ -492,7 +492,7 @@ describe('main module', () => {
       checkBtn.click();
       await vi.runAllTimersAsync();
 
-      expect(statusContainer.textContent).toBe('You have no mutual followers on this account.');
+      expect(statusContainer.textContent).toBe('You have no mutual followers (moots) on this account.');
     });
 
     it('fetches mutuals when uncached, updates progress, saves to cache, and renders blockers', async () => {
@@ -536,7 +536,7 @@ describe('main module', () => {
       expect(mockFetchAllMutuals).toHaveBeenCalled();
       expect(mockFindMutualsBlockingTarget).toHaveBeenCalled();
       expect(statusContainer.textContent).toBe(
-        'Scan complete. Found 2 mutual(s) blocking @target.bsky.social.'
+        'Scan complete. Found 2 moot(s) blocking @target.bsky.social.'
       );
       expect(resultsContainer.innerHTML).toContain('blocker-card');
       expect(resultsContainer.innerHTML).toContain('&lt;M1&gt;');
@@ -584,7 +584,7 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(resultsContainer.innerHTML).toContain(
-        'None of your mutuals block this account.'
+        'None of your moots block this account.'
       );
     });
 
@@ -684,7 +684,7 @@ describe('main module', () => {
       scanMutualsBtn.click();
       await vi.runAllTimersAsync();
 
-      expect(statusContainer.textContent).toBe('You have no mutual followers on this account.');
+      expect(statusContainer.textContent).toBe('You have no mutual followers (moots) on this account.');
     });
 
     it('fetches mutuals when uncached, scans mutual blockers, renders list, and handles toggle expansion (with/without avatar & singular/plural)', async () => {
@@ -735,7 +735,7 @@ describe('main module', () => {
 
       expect(mockFetchAllMutuals).toHaveBeenCalled();
       expect(mockFindTopBlockersAmongMutuals).toHaveBeenCalled();
-      expect(statusContainer.textContent).toBe('Scan complete. Found 2 mutual(s) blocking other mutuals.');
+      expect(statusContainer.textContent).toBe('Scan complete. Found 2 moot(s) blocking other moots.');
 
       expect(resultsContainer.innerHTML).toContain('mutual-blocker-card');
       expect(resultsContainer.innerHTML).toContain('&lt;Blocker 1&gt;');
@@ -744,12 +744,12 @@ describe('main module', () => {
       const container0 = document.getElementById('blocked-container-0') as HTMLElement;
 
       expect(container0.classList.contains('hidden')).toBe(true);
-      expect(toggleBtn0.innerHTML).toContain('Blocks 2 mutuals');
+      expect(toggleBtn0.innerHTML).toContain('Blocks 2 moots');
 
       // Expand container 0
       toggleBtn0.click();
       expect(container0.classList.contains('hidden')).toBe(false);
-      expect(toggleBtn0.innerHTML).toContain('Blocks 2 mutuals');
+      expect(toggleBtn0.innerHTML).toContain('Blocks 2 moots');
 
       // Collapse container 0
       toggleBtn0.click();
@@ -758,7 +758,7 @@ describe('main module', () => {
       // Click toggleBtn1 to test false branch in isHidden when expanding singular mutual
       const toggleBtn1 = document.getElementById('toggle-btn-1') as HTMLButtonElement;
       const container1 = document.getElementById('blocked-container-1') as HTMLElement;
-      expect(toggleBtn1.innerHTML).toContain('Blocks 1 mutual');
+      expect(toggleBtn1.innerHTML).toContain('Blocks 1 moot');
       toggleBtn1.click();
       expect(container1.classList.contains('hidden')).toBe(false);
       toggleBtn1.click();
@@ -791,7 +791,7 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(resultsContainer.innerHTML).toContain(
-        'None of your mutuals block any of your other mutuals.'
+        'None of your moots block any of your other moots.'
       );
     });
 
@@ -864,7 +864,7 @@ describe('main module', () => {
       scanTopBlockedBtn.click();
       await vi.runAllTimersAsync();
 
-      expect(statusContainer.textContent).toBe('You have no mutual followers on this account.');
+      expect(statusContainer.textContent).toBe('You have no mutual followers (moots) on this account.');
     });
 
     it('fetches mutuals when uncached, scans top blocked mutuals, renders list, and handles toggle expansion (with/without avatar & singular/plural)', async () => {
@@ -915,7 +915,7 @@ describe('main module', () => {
 
       expect(mockFetchAllMutuals).toHaveBeenCalled();
       expect(mockFindTopBlockedAmongMutuals).toHaveBeenCalled();
-      expect(statusContainer.textContent).toBe('Scan complete. Found 2 mutual(s) blocked by other mutuals.');
+      expect(statusContainer.textContent).toBe('Scan complete. Found 2 moot(s) blocked by other moots.');
 
       expect(resultsContainer.innerHTML).toContain('mutual-blocker-card');
       expect(resultsContainer.innerHTML).toContain('&lt;Blocked 1&gt;');
@@ -924,12 +924,12 @@ describe('main module', () => {
       const container0 = document.getElementById('blocked-by-container-0') as HTMLElement;
 
       expect(container0.classList.contains('hidden')).toBe(true);
-      expect(toggleBtn0.innerHTML).toContain('Blocked by 2 mutuals');
+      expect(toggleBtn0.innerHTML).toContain('Blocked by 2 moots');
 
       // Expand container 0
       toggleBtn0.click();
       expect(container0.classList.contains('hidden')).toBe(false);
-      expect(toggleBtn0.innerHTML).toContain('Blocked by 2 mutuals');
+      expect(toggleBtn0.innerHTML).toContain('Blocked by 2 moots');
 
       // Collapse container 0
       toggleBtn0.click();
@@ -938,7 +938,7 @@ describe('main module', () => {
       // Click toggleBtn1 to test false branch in isHidden when expanding singular mutual
       const toggleBtn1 = document.getElementById('blocked-toggle-btn-1') as HTMLButtonElement;
       const container1 = document.getElementById('blocked-by-container-1') as HTMLElement;
-      expect(toggleBtn1.innerHTML).toContain('Blocked by 1 mutual');
+      expect(toggleBtn1.innerHTML).toContain('Blocked by 1 moot');
       toggleBtn1.click();
       expect(container1.classList.contains('hidden')).toBe(false);
       toggleBtn1.click();
@@ -971,7 +971,7 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(resultsContainer.innerHTML).toContain(
-        'None of your mutuals are blocked by any of your other mutuals.'
+        'None of your moots are blocked by any of your other moots.'
       );
     });
 

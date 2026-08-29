@@ -1,11 +1,13 @@
-# Bluesky Mutual Block Checker
+# Bluesky Moot Block & Controversy Finder
 
-A client-side web application built with TypeScript and Vite that checks for what mutuals are blocking someone on Bluesky (AT Protocol).
+A client-side web application built with TypeScript and Vite that checks which of your mutual followers (moots) block a specific Bluesky account, and discovers the most controversial moots within your circle (the top blockers and most blocked).
 
 ## Features
 
 - **Bluesky OAuth Login**: Authenticate securely directly in your browser using AT Protocol OAuth.
-- **Mutual Block Detection**: Scan and identify mutual block relationships on Bluesky.
+- **Find Moots Blocking Any Account**: Search any Bluesky handle/DID to find which of your mutual followers block that user.
+- **Top Blockers Among Moots**: Discover which of your moots block the most other mutuals in your circle.
+- **Top Blocked Among Moots**: Discover which of your moots are blocked by the most other mutuals in your circle.
 - **Client-Side Only**: Runs entirely in the browser with no backend server required.
 - **Automated Deployment**: Configured for continuous deployment to [Cloudflare Pages](https://bsky-mutual-blocks.pages.dev).
 

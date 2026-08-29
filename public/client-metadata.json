@@ -1,6 +1,6 @@
 {
   "client_id": "https://bsky-mutual-blocks.pages.dev/client-metadata.json",
-  "client_name": "Bluesky Mutual Block Checker",
+  "client_name": "Bluesky Moot Block & Controversy Finder",
   "client_uri": "https://bsky-mutual-blocks.pages.dev/",
   "redirect_uris": ["https://bsky-mutual-blocks.pages.dev/"],
   "scope": "atproto transition:generic",

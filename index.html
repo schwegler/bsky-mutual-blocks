@@ -5,21 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <!-- Standard Page Meta -->
-    <title>Bluesky Mutual Block Checker</title>
-    <meta name="description" content="Check and discover mutual blocks on Bluesky." />
+    <title>Bluesky Moot Block & Controversy Finder</title>
+    <meta name="description" content="Find which of your mutuals (moots) block an account, and discover your circle's most controversial moots (top blockers & top blocked)." />
 
     <!-- Open Graph / Facebook / Bluesky -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bsky-mutual-blocks.pages.dev/" />
-    <meta property="og:title" content="Bluesky Mutual Block Checker" />
-    <meta property="og:description" content="Check and discover mutual blocks on Bluesky." />
+    <meta property="og:title" content="Bluesky Moot Block & Controversy Finder" />
+    <meta property="og:description" content="Find which of your mutuals (moots) block an account, and discover your circle's most controversial moots (top blockers & top blocked)." />
     <meta property="og:image" content="https://bsky-mutual-blocks.pages.dev/og-image.png" />
 
     <!-- Twitter / X Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://bsky-mutual-blocks.pages.dev/" />
-    <meta name="twitter:title" content="Bluesky Mutual Block Checker" />
-    <meta name="twitter:description" content="Check and discover mutual blocks on Bluesky." />
+    <meta name="twitter:title" content="Bluesky Moot Block & Controversy Finder" />
+    <meta name="twitter:description" content="Find which of your mutuals (moots) block an account, and discover your circle's most controversial moots (top blockers & top blocked)." />
     <meta name="twitter:image" content="https://bsky-mutual-blocks.pages.dev/og-image.png" />
 
     <link rel="stylesheet" href="/src/style.css" />
@@ -27,14 +27,15 @@
   <body>
     <div id="app">
       <header>
-        <h1>Bluesky Mutual Block Checker</h1>
+        <h1>Bluesky Moot Block & Controversy Finder</h1>
+        <p class="header-subtitle">Find which of your moots block any account, and discover your circle's top blockers &amp; most blocked moots.</p>
       </header>
 
       <main>
         <!-- Logged Out View -->
         <section id="auth-section" class="card" aria-labelledby="login-heading">
           <h2 id="login-heading">Sign In</h2>
-          <p>Log in with your Bluesky handle to scan your mutuals.</p>
+          <p>Log in with your Bluesky handle to scan your mutual followers (moots).</p>
           <form id="login-form" aria-label="Sign in form">
             <label for="handle-input" class="visually-hidden">Bluesky Handle</label>
             <input
@@ -56,7 +57,7 @@
           </div>
 
           <div class="search-box">
-            <label for="target-input" class="input-label">Target Bluesky Account</label>
+            <label for="target-input" class="input-label">Check Moots Blocking An Account</label>
             <div class="input-wrapper">
               <input
                 type="text"
@@ -69,10 +70,10 @@
               />
               <ul id="suggestions-list" class="suggestions-dropdown hidden" role="listbox" aria-label="Search suggestions"></ul>
             </div>
-            <button id="check-btn" aria-label="Check Mutual Blocks against target">Check Mutual Blocks</button>
-            <div class="divider-text" aria-hidden="true">or</div>
-            <button id="scan-mutuals-btn" class="btn-secondary" aria-label="Find Top Blockers Among Mutuals">Find Top Blockers Among Mutuals</button>
-            <button id="scan-top-blocked-btn" class="btn-secondary" aria-label="Find Top Blocked Among Mutuals">Find Top Blocked Among Mutuals</button>
+            <button id="check-btn" aria-label="Find which moots block this account">Find Moots Blocking Account</button>
+            <div class="divider-text" aria-hidden="true">or explore your circle's controversy</div>
+            <button id="scan-mutuals-btn" class="btn-secondary" aria-label="Find Top Blockers Among Moots">Find Top Blockers Among Moots</button>
+            <button id="scan-top-blocked-btn" class="btn-secondary" aria-label="Find Top Blocked Among Moots">Find Top Blocked Among Moots</button>
           </div>
 
           <div aria-live="assertive" aria-atomic="true">

@@ -13,19 +13,20 @@ const HTML_FIXTURE = `
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Bluesky Mutual Block Checker</title>
+    <title>Bluesky Moot Block & Controversy Finder</title>
   </head>
   <body>
     <div id="app">
       <header>
-        <h1>Bluesky Mutual Block Checker</h1>
+        <h1>Bluesky Moot Block & Controversy Finder</h1>
+        <p class="header-subtitle">Find which of your moots block any account, and discover your circle's top blockers &amp; most blocked moots.</p>
       </header>
 
       <main>
         <!-- Logged Out View -->
         <section id="auth-section" class="card">
           <h2>Sign In</h2>
-          <p>Log in with your Bluesky handle to scan your mutuals.</p>
+          <p>Log in with your Bluesky handle to scan your mutual followers (moots).</p>
           <form id="login-form">
             <input
               type="text"
@@ -45,7 +46,7 @@ const HTML_FIXTURE = `
           </div>
 
           <div class="search-box">
-            <label for="target-input">Target Bluesky Account</label>
+            <label for="target-input">Check Moots Blocking An Account</label>
             <div class="input-wrapper">
               <input
                 type="text"
@@ -55,10 +56,10 @@ const HTML_FIXTURE = `
               />
               <ul id="suggestions-list" class="suggestions-dropdown hidden"></ul>
             </div>
-            <button id="check-btn">Check Mutual Blocks</button>
-            <div class="divider-text">or</div>
-            <button id="scan-mutuals-btn" class="btn-secondary">Find Top Blockers Among Mutuals</button>
-            <button id="scan-top-blocked-btn" class="btn-secondary">Find Top Blocked Among Mutuals</button>
+            <button id="check-btn">Find Moots Blocking Account</button>
+            <div class="divider-text">or explore your circle's controversy</div>
+            <button id="scan-mutuals-btn" class="btn-secondary">Find Top Blockers Among Moots</button>
+            <button id="scan-top-blocked-btn" class="btn-secondary">Find Top Blocked Among Moots</button>
           </div>
 
           <div id="status-container" class="status-msg"></div>

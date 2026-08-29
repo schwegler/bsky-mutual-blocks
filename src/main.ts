@@ -243,22 +243,22 @@ checkBtn.addEventListener('click', async () => {
   }
 
   if (!cachedMutuals) {
-    statusContainer.textContent = 'Fetching your mutuals list...';
+    statusContainer.textContent = 'Fetching your moots list...';
     progressContainer.classList.add('hidden');
     cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
-      statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
+      statusContainer.textContent = `Fetching moots... (${count} found so far)`;
     });
     setCachedMutualsInStorage(session.sub, cachedMutuals);
   }
 
   if (cachedMutuals.length === 0) {
-    statusContainer.textContent = 'You have no mutual followers on this account.';
+    statusContainer.textContent = 'You have no mutual followers (moots) on this account.';
     progressContainer.classList.add('hidden');
     return;
   }
 
   // 2. Scan mutuals for blocks against target
-  statusContainer.textContent = `Checked 0 / ${cachedMutuals.length} mutuals...`;
+  statusContainer.textContent = `Checked 0 / ${cachedMutuals.length} moots...`;
   progressContainer.classList.remove('hidden');
   progressContainer.setAttribute('aria-busy', 'true');
   progressFill.style.width = '0%';
@@ -273,13 +273,13 @@ checkBtn.addEventListener('click', async () => {
       finalTargetDid,
       cachedMutuals,
       ({ scanned, total }) => {
-        statusContainer.textContent = `Checked ${scanned} / ${total} mutuals...`;
+        statusContainer.textContent = `Checked ${scanned} / ${total} moots...`;
         const pct = Math.round((scanned / total) * 100);
         progressFill.style.width = `${pct}%`;
       }
     );
 
-    statusContainer.textContent = `Scan complete. Found ${blockers.length} mutual(s) blocking @${targetInput.value.trim().replace(/^@/, '')}.`;
+    statusContainer.textContent = `Scan complete. Found ${blockers.length} moot(s) blocking @${targetInput.value.trim().replace(/^@/, '')}.`;
     renderResults(blockers);
   } catch (err: any) {
     console.error('Scan Error:', err);
@@ -306,21 +306,21 @@ scanMutualsBtn.addEventListener('click', async () => {
   }
 
   if (!cachedMutuals) {
-    statusContainer.textContent = 'Fetching your mutuals list...';
+    statusContainer.textContent = 'Fetching your moots list...';
     progressContainer.classList.add('hidden');
     cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
-      statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
+      statusContainer.textContent = `Fetching moots... (${count} found so far)`;
     });
     setCachedMutualsInStorage(session.sub, cachedMutuals);
   }
 
   if (cachedMutuals.length === 0) {
-    statusContainer.textContent = 'You have no mutual followers on this account.';
+    statusContainer.textContent = 'You have no mutual followers (moots) on this account.';
     progressContainer.classList.add('hidden');
     return;
   }
 
-  statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} mutuals...`;
+  statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} moots...`;
   progressContainer.classList.remove('hidden');
   progressContainer.setAttribute('aria-busy', 'true');
   progressFill.style.width = '0%';
@@ -334,13 +334,13 @@ scanMutualsBtn.addEventListener('click', async () => {
       agent,
       cachedMutuals,
       ({ scanned, total }) => {
-        statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} mutuals...`;
+        statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} moots...`;
         const pct = Math.round((scanned / total) * 100);
         progressFill.style.width = `${pct}%`;
       }
     );
 
-    statusContainer.textContent = `Scan complete. Found ${topBlockers.length} mutual(s) blocking other mutuals.`;
+    statusContainer.textContent = `Scan complete. Found ${topBlockers.length} moot(s) blocking other moots.`;
     renderMutualBlockersResults(topBlockers);
   } catch (err: any) {
     console.error('Mutual Scan Error:', err);
@@ -367,21 +367,21 @@ scanTopBlockedBtn.addEventListener('click', async () => {
   }
 
   if (!cachedMutuals) {
-    statusContainer.textContent = 'Fetching your mutuals list...';
+    statusContainer.textContent = 'Fetching your moots list...';
     progressContainer.classList.add('hidden');
     cachedMutuals = await fetchAllMutuals(agent, session.sub, (count) => {
-      statusContainer.textContent = `Fetching mutuals... (${count} found so far)`;
+      statusContainer.textContent = `Fetching moots... (${count} found so far)`;
     });
     setCachedMutualsInStorage(session.sub, cachedMutuals);
   }
 
   if (cachedMutuals.length === 0) {
-    statusContainer.textContent = 'You have no mutual followers on this account.';
+    statusContainer.textContent = 'You have no mutual followers (moots) on this account.';
     progressContainer.classList.add('hidden');
     return;
   }
 
-  statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} mutuals...`;
+  statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} moots...`;
   progressContainer.classList.remove('hidden');
   progressContainer.setAttribute('aria-busy', 'true');
   progressFill.style.width = '0%';
@@ -395,13 +395,13 @@ scanTopBlockedBtn.addEventListener('click', async () => {
       agent,
       cachedMutuals,
       ({ scanned, total }) => {
-        statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} mutuals...`;
+        statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} moots...`;
         const pct = Math.round((scanned / total) * 100);
         progressFill.style.width = `${pct}%`;
       }
     );
 
-    statusContainer.textContent = `Scan complete. Found ${topBlocked.length} mutual(s) blocked by other mutuals.`;
+    statusContainer.textContent = `Scan complete. Found ${topBlocked.length} moot(s) blocked by other moots.`;
     renderTopBlockedResults(topBlocked);
   } catch (err: any) {
     console.error('Top Blocked Scan Error:', err);
@@ -417,7 +417,7 @@ scanTopBlockedBtn.addEventListener('click', async () => {
 
 function renderResults(blockers: MutualProfile[]) {
   if (blockers.length === 0) {
-    resultsContainer.innerHTML = `<p class="no-results">None of your mutuals block this account.</p>`;
+    resultsContainer.innerHTML = `<p class="no-results">None of your moots block this account.</p>`;
     return;
   }
 
@@ -456,7 +456,7 @@ function renderResults(blockers: MutualProfile[]) {
 
 function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
   if (summaries.length === 0) {
-    resultsContainer.innerHTML = `<p class="no-results">None of your mutuals block any of your other mutuals.</p>`;
+    resultsContainer.innerHTML = `<p class="no-results">None of your moots block any of your other moots.</p>`;
     return;
   }
 
@@ -488,7 +488,7 @@ function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
           <a href="${blockerProfileUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${blockerHandle}</a>
         </div>
         <button class="toggle-expand-btn" id="toggle-btn-${index}">
-          Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;
+          Blocks ${summary.blockedMutuals.length} moot${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;
         </button>
       </div>
       <div class="blocked-mutuals-container hidden" id="blocked-container-${index}">
@@ -530,10 +530,10 @@ function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
       const isHidden = container.classList.contains('hidden');
       if (isHidden) {
         container.classList.remove('hidden');
-        toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9650;`;
+        toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} moot${summary.blockedMutuals.length === 1 ? '' : 's'} &#9650;`;
       } else {
         container.classList.add('hidden');
-        toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} mutual${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;`;
+        toggleBtn.innerHTML = `Blocks ${summary.blockedMutuals.length} moot${summary.blockedMutuals.length === 1 ? '' : 's'} &#9660;`;
       }
     });
   });
@@ -541,7 +541,7 @@ function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
 
 function renderTopBlockedResults(summaries: MutualBlockedSummary[]) {
   if (summaries.length === 0) {
-    resultsContainer.innerHTML = `<p class="no-results">None of your mutuals are blocked by any of your other mutuals.</p>`;
+    resultsContainer.innerHTML = `<p class="no-results">None of your moots are blocked by any of your other moots.</p>`;
     return;
   }
 
@@ -573,7 +573,7 @@ function renderTopBlockedResults(summaries: MutualBlockedSummary[]) {
           <a href="${blockedProfileUrl}" target="_blank" rel="noopener noreferrer" class="handle-link">@${blockedHandle}</a>
         </div>
         <button class="toggle-expand-btn" id="blocked-toggle-btn-${index}">
-          Blocked by ${summary.blockedByMutuals.length} mutual${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9660;
+          Blocked by ${summary.blockedByMutuals.length} moot${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9660;
         </button>
       </div>
       <div class="blocked-mutuals-container hidden" id="blocked-by-container-${index}">
@@ -615,10 +615,10 @@ function renderTopBlockedResults(summaries: MutualBlockedSummary[]) {
       const isHidden = container.classList.contains('hidden');
       if (isHidden) {
         container.classList.remove('hidden');
-        toggleBtn.innerHTML = `Blocked by ${summary.blockedByMutuals.length} mutual${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9650;`;
+        toggleBtn.innerHTML = `Blocked by ${summary.blockedByMutuals.length} moot${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9650;`;
       } else {
         container.classList.add('hidden');
-        toggleBtn.innerHTML = `Blocked by ${summary.blockedByMutuals.length} mutual${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9660;`;
+        toggleBtn.innerHTML = `Blocked by ${summary.blockedByMutuals.length} moot${summary.blockedByMutuals.length === 1 ? '' : 's'} &#9660;`;
       }
     });
   });
