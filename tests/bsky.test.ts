@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Agent } from '@atproto/api';
 import {
   resolveActor,
@@ -13,6 +13,44 @@ import {
 } from '../src/bsky';
 
 describe('bsky module', () => {
+
+
+
+
+const originalFetch = global.fetch;
+beforeEach(() => {
+  global.fetch = vi.fn().mockImplementation(async (url) => {
+    if (url.includes('plc.directory')) {
+      return { ok: true, json: async () => ({ service: [{ id: '#atproto_pds', serviceEndpoint: 'https://mock.pds' }] }) };
+    }
+    if (url.includes('com.atproto.repo.listRecords')) {
+      const urlObj = new URL(url);
+      const repo = urlObj.searchParams.get('repo');
+      
+      if (repo === 'did:plc:mutual0' || repo === 'did:plc:mutual2') {
+        return { ok: true, json: async () => ({ records: [{ value: { subject: 'did:plc:resolvedTarget' } }] }) };
+      }
+      if (repo === 'did:plc:m1') {
+        return { ok: true, json: async () => ({ records: [{ value: { subject: 'did:plc:m2' } }, { value: { subject: 'did:plc:m3' } }, { value: { subject: 'did:plc:missing' } }] }) };
+      }
+      if (repo === 'did:plc:m2') {
+        return { ok: true, json: async () => ({ records: [{ value: { subject: 'did:plc:m3' } }] }) };
+      }
+      if (repo === 'did:plc:blockerX') {
+         return { ok: true, json: async () => ({ records: [{ value: { subject: 'did:plc:m1' } }, { value: { subject: 'did:plc:blockedY' } }] }) };
+      }
+      
+      if (url.includes('missing')) return { ok: true, json: async () => ({ records: [] }) };
+      
+      return { ok: true, json: async () => ({ records: [] }) };
+    }
+    return { ok: false };
+  });
+});
+afterEach(() => {
+  global.fetch = originalFetch;
+});
+
   describe('resolveActor', () => {
     it('throws error if input handle/DID is empty or whitespace', async () => {
       const mockAgent = {} as Agent;

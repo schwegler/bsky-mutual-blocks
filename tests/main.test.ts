@@ -820,7 +820,7 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', expect.any(Error));
-      expect(statusContainer.textContent).toBe('Error performing mutual block scan: API failure');
+      expect(statusContainer.textContent).toBe('Error: API failure');
 
       // Test string error rejection
       mockFindTopBlockersAmongMutuals.mockRejectedValueOnce('String failure');
@@ -828,7 +828,7 @@ describe('main module', () => {
       await vi.runAllTimersAsync();
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', 'String failure');
-      expect(statusContainer.textContent).toBe('Error performing mutual block scan: String failure');
+      expect(statusContainer.textContent).toBe('Error: String failure');
 
       consoleErrorSpy.mockRestore();
     });

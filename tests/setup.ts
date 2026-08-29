@@ -53,8 +53,10 @@ const HTML_FIXTURE = `
           </div>
 
           <div id="status-container" class="status-msg"></div>
-          <div id="progress-container" class="progress-container hidden">
-            <progress id="progress-bar" value="0" max="100"></progress>
+          <div id="progress-container" class="progress-container hidden" aria-hidden="true">
+            <div class="progress-track">
+              <div id="progress-bar-fill" class="progress-fill" style="width: 0%"></div>
+            </div>
           </div>
           <div id="results-container"></div>
         </section>

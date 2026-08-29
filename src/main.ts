@@ -66,7 +66,7 @@ const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButton
 
 const statusContainer = document.getElementById('status-container')!;
 const progressContainer = document.getElementById('progress-container')!;
-const progressBar = document.getElementById('progress-bar') as HTMLProgressElement;
+const progressFill = document.getElementById('progress-bar-fill') as HTMLDivElement;
 const resultsContainer = document.getElementById('results-container')!;
 
 async function bootstrap() {
@@ -257,8 +257,8 @@ checkBtn.addEventListener('click', async () => {
   // 2. Scan mutuals for blocks against target
   statusContainer.textContent = `Checked 0 / ${cachedMutuals.length} mutuals...`;
   progressContainer.classList.remove('hidden');
-  progressBar.max = cachedMutuals.length;
-  progressBar.value = 0;
+  progressContainer.setAttribute('aria-busy', 'true');
+  progressFill.style.width = '0%';
 
   checkBtn.disabled = true;
 
@@ -269,8 +269,8 @@ checkBtn.addEventListener('click', async () => {
       cachedMutuals,
       ({ scanned, total }) => {
         statusContainer.textContent = `Checked ${scanned} / ${total} mutuals...`;
-        progressBar.max = total;
-        progressBar.value = scanned;
+        const pct = Math.round((scanned / total) * 100);
+        progressFill.style.width = `${pct}%`;
       }
     );
 
@@ -280,8 +280,9 @@ checkBtn.addEventListener('click', async () => {
     console.error('Scan Error:', err);
     statusContainer.textContent = `Error performing block check: ${err.message || err}`;
   } finally {
-    checkBtn.disabled = false;
     progressContainer.classList.add('hidden');
+    progressContainer.setAttribute('aria-busy', 'false');
+    checkBtn.disabled = false;
   }
 });
 
@@ -314,8 +315,8 @@ scanMutualsBtn.addEventListener('click', async () => {
 
   statusContainer.textContent = `Scanning relationships for 0 / ${cachedMutuals.length} mutuals...`;
   progressContainer.classList.remove('hidden');
-  progressBar.max = cachedMutuals.length;
-  progressBar.value = 0;
+  progressContainer.setAttribute('aria-busy', 'true');
+  progressFill.style.width = '0%';
 
   checkBtn.disabled = true;
   scanMutualsBtn.disabled = true;
@@ -326,8 +327,8 @@ scanMutualsBtn.addEventListener('click', async () => {
       cachedMutuals,
       ({ scanned, total }) => {
         statusContainer.textContent = `Scanning relationships for ${scanned} / ${total} mutuals...`;
-        progressBar.max = total;
-        progressBar.value = scanned;
+        const pct = Math.round((scanned / total) * 100);
+        progressFill.style.width = `${pct}%`;
       }
     );
 
@@ -335,11 +336,12 @@ scanMutualsBtn.addEventListener('click', async () => {
     renderMutualBlockersResults(topBlockers);
   } catch (err: any) {
     console.error('Mutual Scan Error:', err);
-    statusContainer.textContent = `Error performing mutual block scan: ${err.message || err}`;
+    statusContainer.textContent = `Error: ${err.message || String(err)}`;
   } finally {
+    progressContainer.classList.add('hidden');
+    progressContainer.setAttribute('aria-busy', 'false');
     checkBtn.disabled = false;
     scanMutualsBtn.disabled = false;
-    progressContainer.classList.add('hidden');
   }
 });
 
@@ -352,16 +354,18 @@ function renderResults(blockers: MutualProfile[]) {
   resultsContainer.innerHTML = `
     <ul class="blocker-list">
       ${blockers
-        .map((b) => {
+        .map((b, idx) => {
           const profileUrl = `https://bsky.app/profile/${encodeURIComponent(b.handle)}`;
           const avatarImg = b.avatar
             ? `<img src="${b.avatar}" class="avatar-md" alt="${escapeHtml(b.handle)} avatar" />`
             : `<div class="avatar-md avatar-placeholder"></div>`;
           const displayName = escapeHtml(b.displayName || b.handle);
           const handle = escapeHtml(b.handle);
+          
+          const delay = Math.min(idx * 50, 500);
 
           return `
-        <li class="blocker-card">
+        <li class="blocker-card" style="animation-delay: ${delay}ms;">
           <a href="${profileUrl}" target="_blank" rel="noopener noreferrer" class="avatar-link">
             ${avatarImg}
           </a>
@@ -392,6 +396,8 @@ function renderMutualBlockersResults(summaries: MutualBlockerSummary[]) {
   summaries.forEach((summary, index) => {
     const blockerCard = document.createElement('li');
     blockerCard.className = 'mutual-blocker-card';
+    const delay = Math.min(index * 50, 500);
+    blockerCard.style.animationDelay = `${delay}ms`;
 
     const blockerProfileUrl = `https://bsky.app/profile/${encodeURIComponent(summary.blocker.handle)}`;
     const avatarImg = summary.blocker.avatar

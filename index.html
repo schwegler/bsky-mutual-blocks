@@ -32,48 +32,59 @@
 
       <main>
         <!-- Logged Out View -->
-        <section id="auth-section" class="card">
-          <h2>Sign In</h2>
+        <section id="auth-section" class="card" aria-labelledby="login-heading">
+          <h2 id="login-heading">Sign In</h2>
           <p>Log in with your Bluesky handle to scan your mutuals.</p>
-          <form id="login-form">
+          <form id="login-form" aria-label="Sign in form">
+            <label for="handle-input" class="visually-hidden">Bluesky Handle</label>
             <input
               type="text"
               id="handle-input"
               placeholder="e.g. alice.bsky.social"
               required
+              aria-required="true"
             />
             <button type="submit">Log in with Bluesky</button>
           </form>
         </section>
 
         <!-- Logged In View -->
-        <section id="app-section" class="card hidden">
+        <section id="app-section" class="card hidden" aria-label="Application area">
           <div class="user-header">
-            <div id="user-profile-badge"></div>
-            <button id="logout-btn" class="btn-secondary">Sign Out</button>
+            <div id="user-profile-badge" aria-live="polite"></div>
+            <button id="logout-btn" class="btn-secondary" aria-label="Sign out">Sign Out</button>
           </div>
 
           <div class="search-box">
-            <label for="target-input">Target Bluesky Account</label>
+            <label for="target-input" class="input-label">Target Bluesky Account</label>
             <div class="input-wrapper">
               <input
                 type="text"
                 id="target-input"
                 placeholder="Enter handle or search..."
                 autocomplete="off"
+                aria-autocomplete="list"
+                aria-controls="suggestions-list"
+                aria-expanded="false"
               />
-              <ul id="suggestions-list" class="suggestions-dropdown hidden"></ul>
+              <ul id="suggestions-list" class="suggestions-dropdown hidden" role="listbox" aria-label="Search suggestions"></ul>
             </div>
-            <button id="check-btn">Check Mutual Blocks</button>
-            <div class="divider-text">or</div>
-            <button id="scan-mutuals-btn" class="btn-secondary">Find Top Blockers Among Mutuals</button>
+            <button id="check-btn" aria-label="Check Mutual Blocks against target">Check Mutual Blocks</button>
+            <div class="divider-text" aria-hidden="true">or</div>
+            <button id="scan-mutuals-btn" class="btn-secondary" aria-label="Find Top Blockers Among Mutuals">Find Top Blockers Among Mutuals</button>
           </div>
 
-          <div id="status-container" class="status-msg"></div>
-          <div id="progress-container" class="progress-container hidden">
-            <progress id="progress-bar" value="0" max="100"></progress>
+          <div aria-live="assertive" aria-atomic="true">
+            <div id="status-container" class="status-msg"></div>
           </div>
-          <div id="results-container"></div>
+          
+          <div id="progress-container" class="progress-container hidden" aria-hidden="true">
+            <div class="progress-track">
+              <div id="progress-bar-fill" class="progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+          
+          <div id="results-container" aria-live="polite"></div>
         </section>
       </main>
     </div>

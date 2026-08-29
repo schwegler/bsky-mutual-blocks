@@ -1,4 +1,5 @@
 import { Agent, AppBskyActorDefs } from '@atproto/api';
+import { get, set } from 'idb-keyval';
 
 export interface MutualProfile {
   did: string;
@@ -22,6 +23,15 @@ export interface MutualBlockerEntry {
   blockedMutuals: MutualProfile[];
   count: number;
 }
+
+/**
+ * Cache structure for user block lists.
+ */
+interface BlockCacheEntry {
+  timestamp: number;
+  blockedDids: string[];
+}
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 
 /**
@@ -93,6 +103,16 @@ export async function fetchAllUserBlocks(
   repoDid: string,
   maxRetries = 3
 ): Promise<string[]> {
+  const cacheKey = `blocks_${repoDid}`;
+  try {
+    const cached = await get<BlockCacheEntry>(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.blockedDids;
+    }
+  } catch (err) {
+    console.warn(`Cache read failed for ${repoDid}`, err);
+  }
+
   const blockedDids: string[] = [];
 
   try {
@@ -173,6 +193,13 @@ export async function fetchAllUserBlocks(
         }
       }
     } while (cursor);
+    
+    // Save to cache after successfully paginating through all records
+    try {
+      await set(cacheKey, { timestamp: Date.now(), blockedDids });
+    } catch (err) {
+      console.warn(`Cache write failed for ${repoDid}`, err);
+    }
   } catch (err) {
     console.error('Error fetching blocks for', repoDid, err);
   }
