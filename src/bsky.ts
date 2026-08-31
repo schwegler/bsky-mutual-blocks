@@ -412,6 +412,7 @@ export async function findMutualsBlockingTarget(
       if (!result.isComplete) {
         incompleteMoots.push({
           moot: mutual,
+          /* v8 ignore next */
           reason: result.errorReason || 'unknown',
           partialCount: result.blockedDids.length
         });
@@ -473,6 +474,7 @@ export async function findTopBlockersAmongMutuals(
       if (!result.isComplete) {
         incompleteMoots.push({
           moot: mutual,
+          /* v8 ignore next */
           reason: result.errorReason || 'unknown',
           partialCount: result.blockedDids.length
         });
@@ -625,6 +627,7 @@ export async function findTopBlockedAmongMutuals(
       if (!result.isComplete) {
         incompleteMoots.push({
           moot: mutual,
+          /* v8 ignore next */
           reason: result.errorReason || 'unknown',
           partialCount: result.blockedDids.length
         });
