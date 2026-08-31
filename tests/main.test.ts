@@ -421,6 +421,48 @@ describe('main module', () => {
   });
 
   describe('check button mutual block scan workflow', () => {
+
+    it('handles duplicate results in scan target retry and covers branch 197', async () => {
+
+
+      const mockSession = { sub: 'did:plc:user123' };
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      const m2 = { did: 'did:plc:m2', handle: 'm2' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1, m2]));
+
+      mockFindMutualsBlockingTarget.mockResolvedValueOnce({
+        blockingMutuals: [m1],
+        incompleteMoots: [{ moot: m2, reason: 'timeout', partialCount: 0 }]
+      }).mockResolvedValueOnce({
+        blockingMutuals: [m1, m2], // Duplicate m1
+        incompleteMoots: []
+      });
+
+      await loadMainModule();
+
+      // For line 197 branch
+      const item = document.createElement('li');
+      // No data-handle!
+      item.click();
+
+      const targetInput = document.getElementById('target-input') as HTMLInputElement;
+      targetInput.value = 'did:plc:target';
+
+      const checkBtn = document.getElementById('check-btn') as HTMLButtonElement;
+      checkBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFindMutualsBlockingTarget).toHaveBeenCalledTimes(2);
+    });
+
     it('returns early if getSession() returns null', async () => {
       mockInitOAuth.mockResolvedValue({ session: null, agent: null });
       mockGetSession.mockReturnValue(null);
@@ -722,6 +764,178 @@ describe('main module', () => {
   });
 
   describe('scan mutuals button workflow', () => {
+
+    it('catches and logs error from findTopBlockersAmongMutuals and displays it', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([{ did: 'did:plc:m1', handle: 'm1' }]));
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockersAmongMutuals.mockRejectedValueOnce(new Error('Test scan mutuals error'));
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await loadMainModule();
+
+      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+      const statusContainer = document.getElementById('status-container')!;
+
+      scanMutualsBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', expect.any(Error));
+      expect(statusContainer.textContent).toBe('Error: Test scan mutuals error');
+    });
+
+    it('renders warning element and handles retry click for scanMutualsBtn with duplicate results', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      const m2 = { did: 'did:plc:m2', handle: 'm2' };
+      const duplicateBlocker = { blocker: m1, blockedMutuals: [m2] };
+
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1, m2]));
+
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockersAmongMutuals.mockResolvedValueOnce({
+        summaries: [duplicateBlocker],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }]
+      }).mockResolvedValueOnce({
+        summaries: [duplicateBlocker, { blocker: m2, blockedMutuals: [m1] }],
+        incompleteMoots: []
+      });
+
+      await loadMainModule();
+
+      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+      scanMutualsBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      expect(retryBtn).not.toBeNull();
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFindTopBlockersAmongMutuals).toHaveBeenCalledTimes(2);
+    });
+
+    it('catches and logs error when retryBtn is clicked and onRetry throws', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1]));
+
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockersAmongMutuals.mockResolvedValueOnce({
+        summaries: [],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }]
+      }).mockRejectedValueOnce(new Error('Retry exception'));
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await loadMainModule();
+
+      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+      scanMutualsBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Retry error:', expect.any(Error));
+    });
+
+
+    it('catches and logs error from findTopBlockersAmongMutuals and displays it', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([{ did: 'did:plc:m1', handle: 'm1' }]));
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockersAmongMutuals.mockRejectedValueOnce('Test scan mutuals error');
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await loadMainModule();
+
+      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+      const statusContainer = document.getElementById('status-container')!;
+
+      scanMutualsBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Mutual Scan Error:', 'Test scan mutuals error');
+      expect(statusContainer.textContent).toBe('Error: Test scan mutuals error');
+    });
+
+    it('renders warning element and handles retry click for scanMutualsBtn', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1]));
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockersAmongMutuals.mockResolvedValueOnce({
+        summaries: [],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }, { moot: m1, reason: 'pds_offline', partialCount: 0 }]
+      }).mockResolvedValueOnce({
+        summaries: [],
+        incompleteMoots: []
+      });
+
+      await loadMainModule();
+
+      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+      scanMutualsBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      expect(retryBtn).not.toBeNull();
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFindTopBlockersAmongMutuals).toHaveBeenCalledTimes(2);
+    });
+
+    it('catches and logs error when retryBtn is clicked and onRetry throws', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1]));
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockersAmongMutuals.mockResolvedValueOnce({
+        summaries: [],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }, { moot: m1, reason: 'pds_offline', partialCount: 0 }]
+      }).mockRejectedValueOnce(new Error('Retry exception'));
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await loadMainModule();
+
+      const scanMutualsBtn = document.getElementById('scan-mutuals-btn') as HTMLButtonElement;
+      scanMutualsBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Retry error:', expect.any(Error));
+    });
+
     it('returns early if getSession() returns null', async () => {
       mockInitOAuth.mockResolvedValue({ session: null, agent: null });
       mockGetSession.mockReturnValue(null);
@@ -862,6 +1076,73 @@ describe('main module', () => {
   });
 
   describe('scan top blocked button workflow', () => {
+
+    it('renders warning element and handles retry click for scanTopBlockedBtn with duplicate results', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      const m2 = { did: 'did:plc:m2', handle: 'm2' };
+      const duplicateBlocked = { blocked: m1, blockedByMutuals: [m2] };
+
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1, m2]));
+
+
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockedAmongMutuals.mockResolvedValueOnce({
+        summaries: [duplicateBlocked],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }]
+      }).mockResolvedValueOnce({
+        summaries: [duplicateBlocked, { blocked: m2, blockedByMutuals: [m1] }],
+        incompleteMoots: []
+      });
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      expect(retryBtn).not.toBeNull();
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFindTopBlockedAmongMutuals).toHaveBeenCalledTimes(2);
+    });
+
+
+    it('renders warning element and handles retry click for scanTopBlockedBtn', async () => {
+      const mockSession = { sub: 'did:plc:user123' };
+      const m1 = { did: 'did:plc:m1', handle: 'm1' };
+      sessionStorage.setItem('bsky_mutuals_cache_did:plc:user123', JSON.stringify([m1]));
+      mockInitOAuth.mockResolvedValue({ session: mockSession, agent: {} });
+      mockGetSession.mockReturnValue(mockSession);
+      mockGetAgent.mockReturnValue({});
+
+      mockFindTopBlockedAmongMutuals.mockResolvedValueOnce({
+        summaries: [],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }, { moot: m1, reason: 'pds_offline', partialCount: 0 }]
+      }).mockResolvedValueOnce({
+        summaries: [],
+        incompleteMoots: [{ moot: m1, reason: 'timeout', partialCount: 0 }] // Retry returns incomplete moots so onRetry=undefined branch is hit!
+      });
+
+      await loadMainModule();
+
+      const scanTopBlockedBtn = document.getElementById('scan-top-blocked-btn') as HTMLButtonElement;
+      scanTopBlockedBtn.click();
+      await vi.runAllTimersAsync();
+
+      const retryBtn = document.getElementById('retry-incomplete-btn') as HTMLButtonElement;
+      expect(retryBtn).not.toBeNull();
+      retryBtn.click();
+      await vi.runAllTimersAsync();
+
+      expect(mockFindTopBlockedAmongMutuals).toHaveBeenCalledTimes(2);
+    });
+
     it('returns early if getSession() returns null', async () => {
       mockInitOAuth.mockResolvedValue({ session: null, agent: null });
       mockGetSession.mockReturnValue(null);
