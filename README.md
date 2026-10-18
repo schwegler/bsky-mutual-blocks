@@ -1,82 +1,59 @@
-# Bluesky Moot Block & Controversy Finder
+# Moots — Bluesky block checker
 
-A client-side web application built with TypeScript and Vite that checks which of your mutual followers (moots) block a specific Bluesky account, and discovers the most controversial moots within your circle (the top blockers and most blocked).
+A browser-side utility for exploring **public direct block records within your mutual-follow circle**. Built with TypeScript, Vite and AT Protocol OAuth.
 
-## Features
+## Views
 
-- **Bluesky OAuth Login**: Authenticate securely directly in your browser using AT Protocol OAuth.
-- **Find Moots Blocking Any Account**: Search any Bluesky handle/DID to find which of your mutual followers block that user.
-- **Top Blockers Among Moots**: Discover which of your moots block the most other mutuals in your circle.
-- **Top Blocked Among Moots**: Discover which of your moots are blocked by the most other mutuals in your circle.
-- **Client-Side Only**: Runs entirely in the browser with no backend server required.
-- **Automated Deployment**: Configured for continuous deployment to [Cloudflare Pages](https://bsky-mutual-blocks.pages.dev).
+- **Account lookup:** resolve a handle or DID and find mutuals whose direct `app.bsky.graph.block` records name that account.
+- **Blocks sent:** rank mutuals by observed direct blocks naming other mutuals.
+- **Blocks received:** invert those directed records to rank mutuals by observed authors within the same circle.
 
-## Tech Stack
+Results include coverage, incomplete-account reasons, observation timestamps, cached-source counts, expandable directional details, account filtering and name/count sorting. Rankings describe the returned mutual circle, not all of Bluesky. Native forms, keyboard autocomplete, details, progress and dialogs support desktop and mobile use.
 
-- **Framework / Bundler**: [Vite](https://vitejs.dev/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **API & Auth**: Bluesky / AT Protocol (`@atproto/api`, `@atproto/oauth-client-browser`)
-- **Hosting**: [Cloudflare Pages](https://pages.cloudflare.com/)
+## Interpretation and storage
 
-## Getting Started
+Only `app.bsky.graph.block` is scanned. List-based blocking, mutes and motives are outside scope. A direct record does not prove why a person blocked an account, a reciprocal block, current application behavior or network-wide completeness. An incomplete scan may miss matches; ranking counts are lower bounds. Observation times can differ across accounts and retries.
 
-### Prerequisites
+Successful block lists are stored in IndexedDB and may be reused for up to 24 hours. Stored lists remain until overwritten or explicitly cleared; the reuse limit is not an automatic deletion timer. Mutual profiles are cached in this tab's sessionStorage for up to 15 minutes of reuse. Sign-out clears mutual caches but leaves stored public block lists. **Data sources & browser storage** offers explicit scan-cache clearing without deleting the OAuth session. **Refresh circle & records** bypasses both reusable caches. **Retry incomplete** bypasses block caches for incomplete authors, keeps completed observations and replaces the retried authors' observations rather than silently retaining stale partial positives.
 
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
-- `npm` or `pnpm` / `yarn`
+The browser contacts identity, OAuth, Bluesky and personal data servers. Those services can log requests; client-side analysis does not imply anonymity. OAuth uses the existing `atproto transition:generic` scope. No application password is requested by this site; authorization happens at the account provider.
 
-### Installation
+## Local development
 
-1. Clone the repository:
-```bash
-git clone [https://github.com/schwegler/bsky-mutual-blocks.git](https://github.com/schwegler/bsky-mutual-blocks.git)
-cd bsky-mutual-blocks
+Use Node.js 20 or later and npm:
 
-```
-2. Install dependencies:
-```bash
-npm install
-
-```
-### Development
-
-Run the local development server:
-
-```bash
+```sh
+npm ci
 npm run dev
-
 ```
 
-Open `http://localhost:5173` in your browser.
+Open http://127.0.0.1:5173. For local OAuth use that exact origin. The browser OAuth client identifies itself through `public/client-metadata.json`; production metadata targets https://bsky-mutual-blocks.pages.dev/.
 
-### Building
-
-Type-check and compile the production build:
-
-```bash
+```sh
 npm run build
-
+npm test -- --maxWorkers=1
+npm run test:coverage -- --maxWorkers=1
+npm audit
 ```
 
-The output will be generated in the `dist/` directory.
+The build includes TypeScript checking; coverage enforces 100% statements, branches, functions and lines. Tests use synthetic data and the production HTML fixture. Node 26's experimental Web Storage can shadow Happy DOM storage; when testing on Node 26, use `NODE_OPTIONS=--no-experimental-webstorage` (CI runs Node 20).
 
-### Previewing Production Build
+## Architecture
 
-```bash
-npm run preview
+- `src/app.ts`: authenticated views, guarded request lifecycle, keyboard autocomplete and result rendering.
+- `src/scan.ts`: shared directed-graph model, per-author retry observations, bounded circle cache and scoped clearing.
+- `src/bsky.ts`: handle resolution, mutual discovery, PDS direct-record pagination, timeouts, cancellation and rate-limit backoff.
+- `src/dom.ts`: code-native profile rendering and safe HTTPS avatar/property assignment. Remote names, handles, errors and identifiers are never interpolated into HTML.
+- `src/oauth.ts`: existing AT Protocol OAuth client and session lifecycle.
 
-```
+Scans use at most five concurrent account workers. Pagination anomalies are surfaced as errors or incomplete observations rather than reported as complete. Cancellation suppresses late results and aborts public-record requests/backoff; an already-issued authenticated mutual/profile request may finish, but its response cannot publish a cancelled result.
 
-## Deployment
+## Hosting
 
-This repository is connected to **Cloudflare Pages** for automatic deployments:
+The repository is configured for Cloudflare static assets (`dist/`) and CI. Main-branch pushes may deploy automatically through existing hosting configuration; PR previews depend on that external configuration. This project does not require an application backend.
 
-* **Build command**: `npm run build`
-* **Output directory**: `dist`
-* **Root directory**: `/`
-
-Pushes to the `main` branch automatically trigger a production build and deployment to [https://bsky-mutual-blocks.pages.dev](https://www.google.com/url?sa=E&source=gmail&q=https://bsky-mutual-blocks.pages.dev). Pull requests generate preview deployments.
+A [schweg.xyz](https://schweg.xyz/) project by Andrew Schwegler. Contact: [andrew@schweg.xyz](mailto:andrew@schweg.xyz). More at [taco 'bout it](https://tacobout.online), the shared public-facing brand. Bluesky: [@schwegler.lol](https://bsky.app/profile/schwegler.lol).
 
 ## License
 
-MIT
+MIT, as declared in the original repository README.

@@ -15,7 +15,7 @@ export async function initOAuth(): Promise<{ session: OAuthSession | null; agent
     handleResolver: 'https://bsky.social',
     clientMetadata: {
       client_id: clientId,
-      client_name: 'Bluesky Moot Block & Controversy Finder',
+      client_name: 'Moots — Bluesky block checker',
       client_uri: `${window.location.origin}/`,
       redirect_uris: [`${window.location.origin}/`],
       scope: 'atproto transition:generic',
