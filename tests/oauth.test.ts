@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import legacyMetadata from '../public/client-metadata.json';
+import customMetadata from '../public/client-metadata-moots.json';
 
 const mockInit = vi.fn();
 const mockSignInClient = vi.fn();
@@ -31,6 +33,24 @@ describe('oauth module', () => {
   });
 
   describe('initOAuth', () => {
+    it.each([
+      ['https://moots.schweg.xyz', customMetadata],
+      ['https://bsky-mutual-blocks.pages.dev', legacyMetadata]
+    ])('matches the published metadata and callback on %s', async (origin, metadata) => {
+      Object.defineProperty(window, 'location', {
+        value: { hostname: new URL(origin).hostname, origin }, writable: true
+      });
+      mockInit.mockResolvedValue(null);
+      const oauth = await import('../src/oauth');
+      await oauth.initOAuth();
+      const options = mockBrowserOAuthClient.mock.calls[0][0];
+      expect(options.clientMetadata).toEqual(metadata);
+      expect(new URL(metadata.client_id).origin).toBe(origin);
+      expect(metadata.redirect_uris).toEqual([`${origin}/`]);
+      expect(metadata.scope).toBe(legacyMetadata.scope);
+      expect(metadata.grant_types).toEqual(legacyMetadata.grant_types);
+    });
+
     it('initializes OAuth client in local environment (127.0.0.1) and handles session presence', async () => {
       Object.defineProperty(window, 'location', {
         value: {

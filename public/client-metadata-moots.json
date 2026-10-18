@@ -1,0 +1,19 @@
+{
+  "client_id": "https://moots.schweg.xyz/client-metadata-moots.json",
+  "client_name": "Moots \u2014 Bluesky block checker",
+  "client_uri": "https://moots.schweg.xyz/",
+  "redirect_uris": [
+    "https://moots.schweg.xyz/"
+  ],
+  "scope": "atproto transition:generic",
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web",
+  "dpop_bound_access_tokens": true
+}

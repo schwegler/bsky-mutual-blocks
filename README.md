@@ -27,7 +27,7 @@ npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. For local OAuth use that exact origin. The browser OAuth client identifies itself through `public/client-metadata.json`; production metadata targets https://bsky-mutual-blocks.pages.dev/.
+Open http://127.0.0.1:5173. For local OAuth use that exact origin. The browser OAuth client identifies itself through `public/client-metadata.json`; the primary production origin is https://moots.schweg.xyz/. Its public metadata is `public/client-metadata-moots.json`. The existing `public/client-metadata.json` and its pages.dev client identity stay unchanged for compatibility. See [custom-domain OAuth requirements](docs/custom-domain.md).
 
 ```sh
 npm run build
@@ -52,7 +52,7 @@ Scans use at most five concurrent account workers. Pagination anomalies are surf
 
 The repository is configured for Cloudflare static assets (`dist/`) and CI. Main-branch pushes may deploy automatically through existing hosting configuration; PR previews depend on that external configuration. This project does not require an application backend.
 
-A [schweg.xyz](https://schweg.xyz/) project by Andrew Schwegler. The footer uses the canonical path-based script wordmark; its usage and SIL Open Font License are retained in `public/assets/brand/`. Contact: [andrew@schweg.xyz](mailto:andrew@schweg.xyz). More at [taco 'bout it](https://tacobout.online), the shared public-facing brand. Bluesky: [@schwegler.lol](https://bsky.app/profile/schwegler.lol).
+A [schweg.xyz](https://schweg.xyz/) project by Andrew Schwegler. The footer uses the approved transparent PNG signature; provenance and usage are retained in `public/assets/brand/` and `docs/approved-signature-logo.md`. Contact: [andrew@schweg.xyz](mailto:andrew@schweg.xyz). More at [taco 'bout it](https://tacobout.online), the shared public-facing brand. Bluesky: [@schwegler.lol](https://bsky.app/profile/schwegler.lol).
 
 ## License
 
