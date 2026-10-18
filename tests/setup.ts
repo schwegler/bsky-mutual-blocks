@@ -1,98 +1,16 @@
 import { beforeEach, vi } from 'vitest';
 
-export const mockIdbStore = new Map<string, any>();
+export const mockIdbStore = new Map<IDBValidKey, any>();
 vi.mock('idb-keyval', () => ({
+  keys: vi.fn(async () => [...mockIdbStore.keys()]),
   get: vi.fn(async (key: string) => mockIdbStore.get(key)),
   set: vi.fn(async (key: string, val: any) => { mockIdbStore.set(key, val); }),
   del: vi.fn(async (key: string) => { mockIdbStore.delete(key); }),
   clear: vi.fn(async () => { mockIdbStore.clear(); })
 }));
 
-const HTML_FIXTURE = `
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Bluesky Moot Block & Controversy Finder</title>
-  </head>
-  <body>
-    <div id="app">
-      <header>
-        <h1>Bluesky Moot Block & Controversy Finder</h1>
-        <p class="header-subtitle">Find which of your moots block any account, and discover your circle's top blockers &amp; most blocked moots.</p>
-        <div class="creator-attribution">
-          <span class="attribution-label">Created by</span>
-          <a href="https://bsky.app/profile/schwegler.lol" target="_blank" rel="noopener noreferrer" class="creator-badge-pill" title="Follow @schwegler.lol on Bluesky">
-            <span>@schwegler.lol</span>
-          </a>
-          <span class="attribution-dot">&bull;</span>
-          <a href="https://tacobout.online" target="_blank" rel="noopener noreferrer" class="creator-badge-pill blog-pill" title="Read taco 'bout it blog">
-            <span class="taco-emoji">🌮</span>
-            <span class="blog-title">taco 'bout it</span>
-            <span class="blog-domain">tacobout.online</span>
-          </a>
-        </div>
-      </header>
-
-      <main>
-        <!-- Logged Out View -->
-        <section id="auth-section" class="card">
-          <h2>Sign In</h2>
-          <p>Log in with your Bluesky handle to scan your mutual followers (moots).</p>
-          <form id="login-form">
-            <input
-              type="text"
-              id="handle-input"
-              placeholder="e.g. alice.bsky.social"
-              required
-            />
-            <button type="submit">Log in with Bluesky</button>
-          </form>
-        </section>
-
-        <!-- Logged In View -->
-        <section id="app-section" class="card hidden">
-          <div class="user-header">
-            <div id="user-profile-badge"></div>
-            <button id="logout-btn" class="btn-secondary">Sign Out</button>
-          </div>
-
-          <div class="search-box">
-            <label for="target-input">Check Moots Blocking An Account</label>
-            <div class="input-wrapper">
-              <input
-                type="text"
-                id="target-input"
-                placeholder="Enter handle or search..."
-                autocomplete="off"
-              />
-              <ul id="suggestions-list" class="suggestions-dropdown hidden"></ul>
-            </div>
-            <button id="check-btn">Find Moots Blocking Account</button>
-            <div class="divider-text">or explore your circle's controversy</div>
-            <button id="scan-mutuals-btn" class="btn-secondary">Find Top Blockers Among Moots</button>
-            <button id="scan-top-blocked-btn" class="btn-secondary">Find Top Blocked Among Moots</button>
-          </div>
-
-          <div id="status-container" class="status-msg"></div>
-          <div id="progress-container" class="progress-container hidden" aria-hidden="true">
-            <div class="progress-track">
-              <div id="progress-bar-fill" class="progress-fill" style="width: 0%"></div>
-            </div>
-          </div>
-          <div id="results-container"></div>
-        </section>
-      </main>
-
-      <footer class="app-footer">
-        <p>
-          Built with 💜 by <a href="https://bsky.app/profile/schwegler.lol" target="_blank" rel="noopener noreferrer">@schwegler.lol</a> &bull; Read the blog at <a href="https://tacobout.online" target="_blank" rel="noopener noreferrer">tacobout.online 🌮</a>
-        </p>
-      </footer>
-    </div>
-  </body>
-</html>
-`;
+import { readFileSync } from 'node:fs';
+const HTML_FIXTURE = readFileSync('index.html', 'utf8');
 
 export function setupDOM() {
   document.documentElement.innerHTML = HTML_FIXTURE;
@@ -103,6 +21,6 @@ beforeEach(() => {
   vi.restoreAllMocks();
   mockIdbStore.clear();
   sessionStorage.clear();
-  localStorage.clear();
+  window.localStorage?.clear();
   setupDOM();
 });

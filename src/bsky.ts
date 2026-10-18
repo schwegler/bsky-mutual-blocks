@@ -154,14 +154,22 @@ export async function mapConcurrent<T, R>(
   return results;
 }
 
+export interface BlockReadOptions {
+  forceRefresh?: boolean;
+  signal?: AbortSignal;
+  onSource?: (source: 'cache' | 'network', fetchedAt: number) => void;
+}
+
 export async function fetchAllUserBlocks(
   repoDid: string,
-  maxRetries = 3
+  maxRetries = 3,
+  options: BlockReadOptions = {}
 ): Promise<UserBlocksResult> {
   const cacheKey = `blocks_${repoDid}`;
   try {
     const cached = await get<BlockCacheEntry>(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    if (!options.forceRefresh && cached && Number.isFinite(cached.timestamp) && cached.timestamp <= Date.now() && Date.now() - cached.timestamp < CACHE_TTL_MS && Array.isArray(cached.blockedDids) && cached.blockedDids.every((did) => typeof did === 'string')) {
+      options.onSource?.('cache', cached.timestamp);
       return { blockedDids: cached.blockedDids, isComplete: true };
     }
   } catch (err) {
@@ -169,6 +177,8 @@ export async function fetchAllUserBlocks(
   }
 
   const blockedDids: string[] = [];
+  options.onSource?.('network', Date.now());
+  const requestSignal = () => options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000);
 
   try {
     let pdsUrl: string | undefined;
@@ -176,7 +186,7 @@ export async function fetchAllUserBlocks(
     if (repoDid.startsWith('did:plc:')) {
       try {
         const res = await fetch(`https://plc.directory/${repoDid}`, {
-          signal: AbortSignal.timeout(10000)
+          signal: requestSignal()
         });
         if (res.ok) {
           const doc = await res.json();
@@ -195,10 +205,12 @@ export async function fetchAllUserBlocks(
         };
       }
     } else if (repoDid.startsWith('did:web:')) {
-      const domain = repoDid.replace('did:web:', '');
+      const parts = repoDid.slice('did:web:'.length).split(':').map(decodeURIComponent);
+      const domain = parts.shift()!;
+      const didPath = parts.length ? '/' + parts.map(encodeURIComponent).join('/') + '/did.json' : '/.well-known/did.json';
       try {
-        const res = await fetch(`https://${domain}/.well-known/did.json`, {
-          signal: AbortSignal.timeout(10000)
+        const res = await fetch(`https://${domain}${didPath}`, {
+          signal: requestSignal()
         });
         if (res.ok) {
           const doc = await res.json();
@@ -220,7 +232,7 @@ export async function fetchAllUserBlocks(
       return { blockedDids, isComplete: false, errorReason: 'invalid_pds' };
     }
 
-    if (!pdsUrl || (!pdsUrl.startsWith('http://') && !pdsUrl.startsWith('https://'))) {
+    if (!pdsUrl || !isSecurePds(pdsUrl)) {
       return { blockedDids, isComplete: false, errorReason: 'invalid_pds' };
     }
 
@@ -236,13 +248,14 @@ export async function fetchAllUserBlocks(
 
       while (attempts < maxRetries && !success) {
         try {
+          options.signal?.throwIfAborted();
           let url = `${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(repoDid)}&collection=app.bsky.graph.block&limit=100`;
           if (cursor) {
             url += `&cursor=${encodeURIComponent(cursor)}`;
           }
 
           const response = await fetch(url, {
-            signal: AbortSignal.timeout(10000)
+            signal: requestSignal()
           });
 
           if (response.status === 429) {
@@ -268,6 +281,9 @@ export async function fetchAllUserBlocks(
             }
           }
 
+          if (data.cursor && (typeof data.cursor !== 'string' || data.cursor === cursor || seenCursors.has(data.cursor))) {
+            return { blockedDids, isComplete: false, errorReason: 'unknown' };
+          }
           if (data.cursor && typeof data.cursor === 'string' && data.cursor !== cursor && !seenCursors.has(data.cursor)) {
             seenCursors.add(data.cursor);
             cursor = data.cursor;
@@ -277,12 +293,13 @@ export async function fetchAllUserBlocks(
 
           success = true;
         } catch (err: any) {
+          options.signal?.throwIfAborted();
           attempts++;
           const isRateLimit = err?.status === 429 || err?.message?.includes('Rate Limit');
           if (attempts < maxRetries && isRateLimit) {
             const waitMs = Math.pow(2, attempts) * 1000;
             console.warn(`[429] Rate limit on ${repoDid}. Retrying in ${waitMs}ms...`);
-            await new Promise(r => setTimeout(r, waitMs));
+            await abortableDelay(waitMs, options.signal);
           } else {
             if (isRateLimit) {
               errorReason = 'rate_limit';
@@ -303,13 +320,16 @@ export async function fetchAllUserBlocks(
     
     // Save to cache ONLY after successfully paginating through all records
     try {
+      options.signal?.throwIfAborted();
       await set(cacheKey, { timestamp: Date.now(), blockedDids });
     } catch (err) {
       console.warn(`Cache write failed for ${repoDid}`, err);
     }
 
+    options.signal?.throwIfAborted();
     return { blockedDids, isComplete: true };
   } catch (err: any) {
+    options.signal?.throwIfAborted();
     console.error('Error fetching blocks for', repoDid, err);
     const errorReason: BlockFetchErrorReason =
       err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'unknown';
@@ -334,19 +354,22 @@ export async function searchActorsTypeahead(
 export async function fetchAllMutuals(
   agent: Agent,
   userDid: string,
-  onProgress?: (count: number) => void
+  onProgress?: (count: number) => void,
+  signal?: AbortSignal
 ): Promise<MutualProfile[]> {
   const mutuals: MutualProfile[] = [];
   let cursor: string | undefined = undefined;
   const seenCursors = new Set<string>();
 
   do {
+    signal?.throwIfAborted();
     const res = await agent.app.bsky.graph.getFollows({
       actor: userDid,
       limit: 100,
       cursor
     });
 
+    signal?.throwIfAborted();
     if (!res.data?.follows || res.data.follows.length === 0) {
       break;
     }
@@ -371,6 +394,8 @@ export async function fetchAllMutuals(
     if (nextCursor && typeof nextCursor === 'string' && nextCursor !== cursor && !seenCursors.has(nextCursor)) {
       seenCursors.add(nextCursor);
       cursor = nextCursor;
+    } else if (nextCursor) {
+      throw new Error('The mutual-follower response repeated an invalid pagination cursor. Try refreshing your circle.');
     } else {
       cursor = undefined;
     }
@@ -739,4 +764,22 @@ export async function findMutualsBlockedByMutuals(
     blockedByMutuals: s.blockedByMutuals,
     count: s.blockedByMutuals.length
   }));
+}
+
+/** Reject active content, credentials and insecure transport in remote DID service endpoints. */
+export function isSecurePds(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
+}
+
+export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return; }
+    const done = () => { signal?.removeEventListener('abort', abort); resolve(); };
+    const timer = setTimeout(done, ms);
+    const abort = () => { clearTimeout(timer); signal!.removeEventListener('abort', abort); reject(signal!.reason); };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }

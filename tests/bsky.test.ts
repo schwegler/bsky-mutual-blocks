@@ -315,9 +315,8 @@ afterEach(() => {
         }
       } as unknown as Agent;
 
-      const mutuals = await fetchAllMutuals(mockAgent, 'did:plc:user');
+      await expect(fetchAllMutuals(mockAgent, 'did:plc:user')).rejects.toThrow('pagination cursor');
       expect(getFollowsMock).toHaveBeenCalledTimes(2);
-      expect(mutuals).toHaveLength(2);
     });
 
     it('terminates pagination when follows is empty even if cursor is provided', async () => {
@@ -709,7 +708,7 @@ afterEach(() => {
       const result = await fetchAllUserBlocks('did:plc:duplicateCursor');
       expect(callCount).toBe(2); // Initial call (returns sameCursor), second call with cursor=sameCursor terminates
       expect(result.blockedDids).toHaveLength(2);
-      expect(result.isComplete).toBe(true);
+      expect(result.isComplete).toBe(false);
     });
 
     it('handles invalid or non-http/https PDS endpoint gracefully', async () => {
