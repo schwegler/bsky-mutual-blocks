@@ -132,6 +132,24 @@ describe('keyboard autocomplete and stale responses',()=>{
     vi.mocked(bsky.searchActorsTypeahead).mockResolvedValueOnce([]);enter('#target','no');await new Promise(r=>setTimeout(r,300));expect($<HTMLElement>('#suggestions').hidden).toBe(true);
     vi.mocked(bsky.searchActorsTypeahead).mockRejectedValueOnce(Error('offline'));enter('#target','fail');await vi.waitFor(()=>expect($('#target-error').textContent).toContain('still enter'));enter('#target','x');expect($('#target-error').textContent).toBe('');enter('#target',river.did);expect($<HTMLElement>('#suggestions').hidden).toBe(true);
   });
+
+  it('selects a released touch even when focus blurs before click, without requiring a compatibility click',async()=>{
+    await start();enter('#target','ri');await vi.waitFor(()=>expect($('[role=option]')).not.toBeNull());
+    const option=$('[role=option]');
+    const pointer=(type:string,id=1,x=20)=>{const event=new MouseEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:20});Object.defineProperties(event,{pointerId:{value:id},pointerType:{value:'touch'}});option.dispatchEvent(event);return event};
+    expect(pointer('pointerdown').defaultPrevented).toBe(false);
+    $('#target').dispatchEvent(new Event('blur'));expect($<HTMLElement>('#suggestions').hidden).toBe(false);
+    pointer('pointermove',2,60);pointer('pointermove',1,22);pointer('pointerup',2);
+    expect(pointer('pointerup').defaultPrevented).toBe(true);expect($<HTMLInputElement>('#target').value).toBe(river.handle);expect($<HTMLElement>('#suggestions').hidden).toBe(true);
+    pointer('pointerup');pointer('pointermove');option.dispatchEvent(new Event('pointerleave'));
+    enter('#target','ri');await vi.waitFor(()=>expect($<HTMLElement>('#suggestions').hidden).toBe(false));const current=$('[role=option]');const down=new MouseEvent('pointerdown');current.dispatchEvent(down);current.dispatchEvent(new Event('pointerleave'));expect($<HTMLElement>('#suggestions').hidden).toBe(true);
+  });
+  it('does not select a suggestion after a touch scroll or pointer cancellation',async()=>{
+    await start();
+    const pointer=(type:string,x=20)=>{const event=new MouseEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:20});Object.defineProperties(event,{pointerId:{value:1},pointerType:{value:'touch'}});$('[role=option]').dispatchEvent(event)};
+    enter('#target','ri');await vi.waitFor(()=>expect($('[role=option]')).not.toBeNull());pointer('pointerdown');pointer('pointermove',45);pointer('pointerup',45);click('[role=option]');expect($<HTMLInputElement>('#target').value).toBe('ri');expect($<HTMLElement>('#suggestions').hidden).toBe(true);
+    enter('#target','ri');await vi.waitFor(()=>expect($<HTMLElement>('#suggestions').hidden).toBe(false));pointer('pointerdown');pointer('pointercancel');pointer('pointerup');click('[role=option]');expect($<HTMLInputElement>('#target').value).toBe('ri');expect($<HTMLElement>('#suggestions').hidden).toBe(true);
+  });
   it('ignores stale suggestions after editing, blur and navigation',async()=>{
     await start();const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);enter('#target','old');await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalled());enter('#target','new');pending.resolve([river] as never);await Promise.resolve();expect($<HTMLElement>('#suggestions').hidden).toBe(true);$('#target').dispatchEvent(new Event('blur'));click('[data-mode=sent]');expect($('#suggestions')).toBeNull();
   });
@@ -166,5 +184,14 @@ describe('recovery from interrupted account and storage actions',()=>{
   });
   it('cancels an active scan before clearing data and keeps the app usable if clearing fails',async()=>{
     await start();const pending=defer<Snapshot>();vi.mocked(scanModule.scanCircle).mockReturnValueOnce(pending.promise);vi.spyOn(scanModule,'clearBlockCache').mockRejectedValueOnce(Error('blocked'));enter('#target',river.handle);submit('.tool-form');await vi.waitFor(()=>expect(scanModule.scanCircle).toHaveBeenCalled());click('#scope');click('#clear-data');await vi.waitFor(()=>expect($('#clear-status').textContent).toContain('could not be cleared'));expect($<HTMLInputElement>('#target').disabled).toBe(false);pending.resolve(fixture());await new Promise(r=>setTimeout(r,0));expect($('.records')).toBeNull();
+  });
+});
+
+describe('comparison circle copy',()=>{
+  it('distinguishes the signed-in circle from the lookup subject and both ranking directions',async()=>{
+    await start();expect($('.intro').textContent).toContain('lookup subject’s mutuals are not fetched');expect($('#target-note').textContent).toContain('mutuals of the signed-in account');
+    click('[data-mode=sent]');expect($('.intro').textContent).toContain('row account → other mutuals');
+    click('[data-mode=received]');expect($('.intro').textContent).toContain('other mutuals → row account');
+    click('#scope');expect($('#modal-content').textContent).toContain('not the lookup subject');
   });
 });

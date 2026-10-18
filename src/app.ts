@@ -9,9 +9,9 @@ export interface Services {
   signOut: () => Promise<void>;
 }
 const modes: Record<Mode, { title: string; intro: string; button: string }> = {
-  lookup: { title: 'A clearer view of your circle.', intro: 'Look up an account to find public direct block records from your mutual followers. A small window into the graph, with context kept in view.', button: 'Check account' },
-  sent: { title: 'Blocks sent, within your circle.', intro: 'See which mutual followers have direct block records naming other mutuals. Counts apply only to your circle, not all of Bluesky.', button: 'Scan blocks sent' },
-  received: { title: 'Blocks received, within your circle.', intro: 'See which mutual followers are named in direct block records from other mutuals. Counts apply only to your circle, not all of Bluesky.', button: 'Scan blocks received' }
+  lookup: { title: 'A clearer view of your circle.', intro: 'Find accounts in the signed-in account’s mutual circle whose public direct block records name the lookup subject. Mutuals follow the signed-in account and are followed back; the lookup subject’s mutuals are not fetched.', button: 'Check account' },
+  sent: { title: 'Blocks sent, within your circle.', intro: 'Rank accounts in the signed-in account’s mutual circle by how many other accounts in that same circle their direct block records name. Direction: row account → other mutuals.', button: 'Scan blocks sent' },
+  received: { title: 'Blocks received, within your circle.', intro: 'Rank accounts in the signed-in account’s mutual circle by how many other accounts in that same circle have direct block records naming them. Direction: other mutuals → row account.', button: 'Scan blocks received' }
 };
 const scope = '<div class="scope-foot"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v7m0-11v2"/></svg><span>Public direct block records only. List-based blocks and mutes are not included. Records do not explain why a block exists.</span></div>';
 
@@ -91,13 +91,13 @@ export function createApp(services: Services) {
     q('.intro').textContent = modes[mode].intro;
     const form = q<HTMLFormElement>('.tool-form');
     if (mode === 'lookup') {
-      form.innerHTML = '<label for="target">Bluesky account</label><div class="form-line"><div class="input-wrap"><input id="target" placeholder="Handle or DID" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list" aria-describedby="target-note target-error"><div id="suggestions" class="suggestions" role="listbox" aria-label="Account suggestions" hidden></div><p id="target-error" class="error-text" role="alert"></p></div><button class="primary" type="submit">Check account <span aria-hidden="true">→</span></button></div><p class="form-note" id="target-note">Accepts a Bluesky handle or DID. Results name the resolved account.</p>';
+      form.innerHTML = '<label for="target">Account to check (block subject)</label><div class="form-line"><div class="input-wrap"><input id="target" placeholder="Handle or DID" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list" aria-describedby="target-note target-error"><div id="suggestions" class="suggestions" role="listbox" aria-label="Account suggestions" hidden></div><p id="target-error" class="error-text" role="alert"></p></div><button class="primary" type="submit">Check account <span aria-hidden="true">→</span></button></div><p class="form-note" id="target-note">Enter one Bluesky handle or DID. Results show which mutuals of the signed-in account have direct block records naming this subject.</p>';
       q<HTMLInputElement>('#target').value = targetValue;
       autocomplete();
     } else {
       const button = element('button', 'primary', modes[mode].button + ' →');
       button.type = 'submit';
-      form.append(button, element('p', 'form-note', 'Your mutual circle is the comparison set. No network-wide ranking.'));
+      form.append(button, element('p', 'form-note', 'The circle contains accounts that follow the signed-in account and are followed back. Counts stay within that circle; this is not a network-wide ranking.'));
     }
     form.onsubmit = event => { event.preventDefault(); if (!active) void run(); };
     navigation();
@@ -281,6 +281,7 @@ export function createApp(services: Services) {
   function autocomplete() {
     const input = q<HTMLInputElement>('#target'); const list = q('#suggestions');
     let actors: AppBskyActorDefs.ProfileViewBasic[] = []; let selected = -1;
+    let gesture: { id: number; x: number; y: number; moved: boolean } | null = null;
     const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); selected = -1; };
     const choose = (index: number) => { const actor = actors[index]; targetValue = actor.handle; input.value = actor.handle; invalidateSuggestions(); close(); input.focus(); };
     const highlight = () => {
@@ -298,8 +299,27 @@ export function createApp(services: Services) {
           if (version !== suggestionVersion || !input.isConnected || active) return;
           actors = result; list.replaceChildren();
           actors.forEach((actor, index) => {
+            let suppressClick = false;
             const option = element('div'); option.id = 'actor-' + index; option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false'); option.append(person(actor));
-            option.onpointerdown = event => event.preventDefault(); option.onclick = () => choose(index); list.append(option);
+            // Touch selection commits on release, before blur can dismiss the list.
+            // Do not cancel touch down: native scrolling must still cancel a tap.
+            option.onpointerdown = event => {
+              if (event.pointerType !== 'touch') event.preventDefault();
+              suppressClick = false;
+              gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+            };
+            option.onpointermove = event => {
+              if (gesture && event.pointerId === gesture.id && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 10) gesture.moved = true;
+            };
+            option.onpointerup = event => {
+              if (!gesture || event.pointerId !== gesture.id) return;
+              const moved = gesture.moved; gesture = null;
+              suppressClick = moved;
+              if (moved) close(); else { event.preventDefault(); choose(index); }
+            };
+            option.onpointercancel = () => { suppressClick = true; gesture = null; close(); };
+            option.onpointerleave = () => { if (gesture) { suppressClick = true; gesture = null; close(); } };
+            option.onclick = () => { if (!suppressClick) choose(index); }; list.append(option);
           });
           list.hidden = !actors.length; input.setAttribute('aria-expanded', String(actors.length > 0));
         } catch { if (version === suggestionVersion && input.isConnected) q('#target-error').textContent = 'Suggestions unavailable. You can still enter a full handle or DID.'; }
@@ -311,7 +331,7 @@ export function createApp(services: Services) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); selected = selected < 0 ? (event.key === 'ArrowDown' ? 0 : actors.length - 1) : (selected + (event.key === 'ArrowDown' ? 1 : -1) + actors.length) % actors.length; highlight(); }
       if (event.key === 'Enter' && selected >= 0) { event.preventDefault(); choose(selected); }
     };
-    input.onblur = () => { invalidateSuggestions(); close(); };
+    input.onblur = () => { invalidateSuggestions(); if (!gesture) close(); };
   }
   function openDialog(html: string) {
     opener = document.activeElement as HTMLElement;
@@ -320,7 +340,7 @@ export function createApp(services: Services) {
   }
   function closeDialog() { dialog.close(); if (opener?.isConnected) opener.focus(); }
   function showData() {
-    openDialog('<h2 id="dialog-title">What this view can tell you.</h2><p>Mutuals are accounts you follow that the authenticated follow response marks as following you back. We read public <code>app.bsky.graph.block</code> records from their personal data servers.</p><h3>Scope before certainty.</h3><p>Direct records only. List-based blocks, mutes, motives and network-wide relationships are outside scope. Partial scans can miss matches; records can change.</p><h3>Browser storage.</h3><p>Successful block lists are stored in IndexedDB and may be reused for up to 24 hours. Stored lists remain until overwritten or cleared. Mutual profiles are stored in this tab’s sessionStorage and reused for up to 15 minutes. Signing out clears the mutual cache, but stored block lists remain until cleared below. OAuth session persistence is managed by the AT Protocol client.</p><p>Your browser contacts identity, Bluesky and account data servers. Those services may log requests. The tool cannot promise anonymity or that no third party sees a lookup. OAuth currently uses the transitional atproto transition:generic scope; review the provider’s authorization screen.</p><div class="privacy-controls"><button class="secondary" id="clear-data" type="button">Clear cached scan data</button><p id="clear-status" role="status"></p></div>');
+    openDialog('<h2 id="dialog-title">What this view can tell you.</h2><p>The comparison circle belongs to the signed-in account, not the lookup subject. Mutuals are accounts the signed-in account follows that the authenticated follow response marks as following it back. We read public <code>app.bsky.graph.block</code> records from their personal data servers.</p><h3>Scope before certainty.</h3><p>Direct records only. List-based blocks, mutes, motives and network-wide relationships are outside scope. Partial scans can miss matches; records can change.</p><h3>Browser storage.</h3><p>Successful block lists are stored in IndexedDB and may be reused for up to 24 hours. Stored lists remain until overwritten or cleared. Mutual profiles are stored in this tab’s sessionStorage and reused for up to 15 minutes. Signing out clears the mutual cache, but stored block lists remain until cleared below. OAuth session persistence is managed by the AT Protocol client.</p><p>Your browser contacts identity, Bluesky and account data servers. Those services may log requests. The tool cannot promise anonymity or that no third party sees a lookup. OAuth currently uses the transitional atproto transition:generic scope; review the provider’s authorization screen.</p><div class="privacy-controls"><button class="secondary" id="clear-data" type="button">Clear cached scan data</button><p id="clear-status" role="status"></p></div>');
     const button = dialogContent.querySelector<HTMLButtonElement>('#clear-data')!;
     button.onclick = async () => {
       button.disabled = true;
@@ -340,7 +360,7 @@ export function createApp(services: Services) {
     button.onclick = () => { if (!agent || active) return; mode = button.dataset.mode as Mode; snapshot = null; filter = ''; sort = 'count'; ready(); focusMain(); };
   });
   document.querySelector<HTMLElement>('#scope')!.onclick = showData;
-  document.querySelector<HTMLElement>('#help')!.onclick = () => openDialog('<h2 id="dialog-title">A small window into the graph.</h2><p>Connect with Bluesky OAuth, discover your mutual followers, then choose a view.</p><h3>Account lookup</h3><p>Find mutuals with a direct record naming the resolved account.</p><h3>Blocks sent / received</h3><p>Explore directed records between mutuals, ranked by observed count. Open a row to inspect direction. These are not network-wide rankings.</p><h3>Keep the limits in view.</h3><p>Partial coverage and cached data affect results. Records do not explain intent. This independent tool is not affiliated with Bluesky.</p><p><a href="https://atproto.com/blog/block-implementation" target="_blank" rel="noopener noreferrer">AT Protocol: public block records ↗</a></p>');
+  document.querySelector<HTMLElement>('#help')!.onclick = () => openDialog('<h2 id="dialog-title">A small window into the graph.</h2><p>Connect with Bluesky OAuth. Every view uses the signed-in account’s mutual circle: accounts it follows that follow it back.</p><h3>Account lookup</h3><p>Find members of the signed-in account’s circle with a direct block record naming the lookup subject. Direction: circle member → lookup subject. The lookup subject’s mutuals are not fetched.</p><h3>Blocks sent / received</h3><p>Explore directed records between mutuals, ranked by observed count. Open a row to inspect direction. These are not network-wide rankings.</p><h3>Keep the limits in view.</h3><p>Partial coverage and cached data affect results. Records do not explain intent. This independent tool is not affiliated with Bluesky.</p><p><a href="https://atproto.com/blog/block-implementation" target="_blank" rel="noopener noreferrer">AT Protocol: public block records ↗</a></p>');
   document.querySelector<HTMLElement>('#close-dialog')!.onclick = closeDialog;
   dialog.oncancel = () => { if (opener?.isConnected) opener.focus(); };
 
