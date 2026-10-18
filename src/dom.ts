@@ -26,7 +26,7 @@ export function avatar(profile: MutualProfile): HTMLElement {
 }
 function initials(profile: MutualProfile): HTMLElement {
   const label = profile.displayName || profile.handle;
-  const node = element('span', 'avatar', label.slice(0, 2).toUpperCase());
+  const node = element('span', 'avatar', label.trim().split(/\s+/).slice(0, 2).map(word => Array.from(word)[0]).join('').toUpperCase());
   node.setAttribute('aria-hidden', 'true');
   return node;
 }

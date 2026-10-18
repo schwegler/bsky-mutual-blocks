@@ -43,3 +43,17 @@ it('checks cancellation before and after mutual discovery',async()=>{
   await expect(fetchAllMutuals(agent,'did:plc:a',undefined,controller.signal)).rejects.toThrow();
   await expect(fetchAllMutuals(agent,'did:plc:a',undefined,controller.signal)).rejects.toThrow();
 });
+it('classifies every public failure label and page-level timeout variant',async()=>{
+  const { getErrorReasonMessage }=await import('../src/bsky');
+  for(const reason of ['rate_limit','timeout','pds_offline','invalid_pds','unknown',undefined] as const)expect(getErrorReasonMessage(reason)).toBeTruthy();
+  for(const error of [new DOMException('time','TimeoutError'),new DOMException('abort','AbortError'),Error('request timeout'),Error('request abort')]){
+    vi.stubGlobal('fetch',vi.fn(async(url:string)=>{if(url.includes('plc.directory'))return new Response(JSON.stringify(doc));throw error}));
+    expect(await fetchAllUserBlocks('did:plc:a')).toMatchObject({isComplete:false,errorReason:'timeout'});
+  }
+});
+it('handles did:web discovery timeouts, malformed encoding and zero retries without a false success',async()=>{
+  for(const error of [new DOMException('time','TimeoutError'),Error('network')]){
+    vi.stubGlobal('fetch',vi.fn(async()=>{throw error}));expect((await fetchAllUserBlocks('did:web:example.test')).isComplete).toBe(false);
+  }
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(doc))));expect(await fetchAllUserBlocks('did:plc:a',0)).toMatchObject({isComplete:false,errorReason:'unknown'});
+});

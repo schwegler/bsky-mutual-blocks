@@ -71,7 +71,7 @@ describe('authentication and application shell',()=>{
 describe('guarded scan lifecycle',()=>{
   it('validates target inline and freezes the canonical target into the result',async()=>{
     await start();submit('.tool-form');expect($('#target-error').textContent).toContain('full Bluesky');expect(document.activeElement).toBe($('#target'));
-    await lookup();expect($('h2').textContent).toBe('2 direct block records found');expect($('.result-context').textContent).toContain('@river.example.test');expect($('#announcement').textContent).toContain('Scan finished');
+    await lookup();expect($('h2').textContent).toBe('2 mutuals with direct block records');expect($('.result-context').textContent).toContain('@river.example.test');expect($('#announcement').textContent).toContain('Scan finished');
     expect(bsky.fetchAllMutuals).toHaveBeenCalledTimes(1);await lookup();expect(bsky.fetchAllMutuals).toHaveBeenCalledTimes(1);
     click('.scan-actions .secondary');await flush();expect(bsky.fetchAllMutuals).toHaveBeenCalledTimes(2);expect(vi.mocked(scanModule.scanCircle).mock.calls.at(-1)![2].forceRefresh).toBe(true);
   });
@@ -115,7 +115,7 @@ describe('results, ranks and safe disclosure content',()=>{
     await start();click('[data-mode='+mode+']');vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(fixture(mode,true));submit('.tool-form');await flush();expect($('.record').textContent).toContain('At least');expect($('.record-body').textContent).toContain(mode==='sent'?'subjects':'authors');expect($('.detail-person a').getAttribute('target')).toBe('_blank');expect($('.notice').textContent).toContain('ordering may change');
   });
   it('names DID-only targets, handles one match and missing display names',async()=>{
-    await start();vi.mocked(bsky.resolveActor).mockResolvedValueOnce({did:river.did});const s=fixture();s.target={did:river.did};s.observations=s.observations.slice(0,1);s.mutuals=[jun];s.observations[0].moot={...jun,displayName:undefined};vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(s);enter('#target',river.did);submit('.tool-form');await flush();expect($('h2').textContent).toBe('1 direct block record found');expect($('.result-context').textContent).toContain(river.did);expect($('.person b').textContent).toBe(jun.handle);
+    await start();vi.mocked(bsky.resolveActor).mockResolvedValueOnce({did:river.did});const s=fixture();s.target={did:river.did};s.observations=s.observations.slice(0,1);s.mutuals=[jun];s.observations[0].moot={...jun,displayName:undefined};vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(s);enter('#target',river.did);submit('.tool-form');await flush();expect($('h2').textContent).toBe('1 mutual with a direct block record');expect($('.result-context').textContent).toContain(river.did);expect($('.person b').textContent).toBe(jun.handle);
   });
   it('never turns malicious identity, result or error fields into executable markup',async()=>{
     const attack='<img src=x onerror="window.pwned=1">';vi.mocked(agent.getProfile).mockResolvedValueOnce({data:{did:jun.did,handle:attack,displayName:attack,avatar:'javascript:alert(1)'}} as never);await start();expect($('#identity').querySelector('img')).toBeNull();expect($('#identity').textContent).toContain(attack);
@@ -124,15 +124,39 @@ describe('results, ranks and safe disclosure content',()=>{
 });
 describe('keyboard autocomplete and stale responses',()=>{
   it('supports ArrowDown/Up, Enter and Escape with expanded/selected state',async()=>{
-    await start();enter('#target','ri');await vi.waitFor(()=>expect($<HTMLElement>('#suggestions').hidden).toBe(false));const input=$('#target');input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));expect(input.getAttribute('aria-activedescendant')).toBe('actor-0');expect($('[role=option]').getAttribute('aria-selected')).toBe('true');input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));expect($<HTMLInputElement>('#target').value).toBe(river.handle);expect(input.getAttribute('aria-expanded')).toBe('false');
+    await start();enter('#target','ri');await vi.waitFor(()=>expect($<HTMLElement>('#suggestions').hidden).toBe(false));const input=$('#target');input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));expect(input.getAttribute('aria-activedescendant')).toBe('actor-0');expect($('[role=option]').getAttribute('aria-selected')).toBe('true');input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));expect($<HTMLInputElement>('#target').value).toBe(river.handle);expect(input.getAttribute('aria-expanded')).toBe('false');
     enter('#target','ri');await vi.waitFor(()=>expect(input.getAttribute('aria-expanded')).toBe('true'));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));expect(input.getAttribute('aria-activedescendant')).toBeNull();
   });
   it('selects by pointer without blurring, handles no suggestions and allows manual input on failure',async()=>{
-    await start();enter('#target','ri');await vi.waitFor(()=>expect($('[role=option]')).not.toBeNull());const event=new MouseEvent('mousedown',{cancelable:true});$('[role=option]').dispatchEvent(event);expect(event.defaultPrevented).toBe(true);click('[role=option]');expect($<HTMLInputElement>('#target').value).toBe(river.handle);
+    await start();enter('#target','ri');await vi.waitFor(()=>expect($('[role=option]')).not.toBeNull());const event=new MouseEvent('pointerdown',{cancelable:true});$('[role=option]').dispatchEvent(event);expect(event.defaultPrevented).toBe(true);click('[role=option]');expect($<HTMLInputElement>('#target').value).toBe(river.handle);
     vi.mocked(bsky.searchActorsTypeahead).mockResolvedValueOnce([]);enter('#target','no');await new Promise(r=>setTimeout(r,300));expect($<HTMLElement>('#suggestions').hidden).toBe(true);
     vi.mocked(bsky.searchActorsTypeahead).mockRejectedValueOnce(Error('offline'));enter('#target','fail');await vi.waitFor(()=>expect($('#target-error').textContent).toContain('still enter'));enter('#target','x');expect($('#target-error').textContent).toBe('');enter('#target',river.did);expect($<HTMLElement>('#suggestions').hidden).toBe(true);
   });
   it('ignores stale suggestions after editing, blur and navigation',async()=>{
     await start();const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);enter('#target','old');await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalled());enter('#target','new');pending.resolve([river] as never);await Promise.resolve();expect($<HTMLElement>('#suggestions').hidden).toBe(true);$('#target').dispatchEvent(new Event('blur'));click('[data-mode=sent]');expect($('#suggestions')).toBeNull();
+  });
+});
+describe('asynchronous and focus regression boundaries',()=>{
+  it('ignores queued progress and completion after cancellation',async()=>{
+    await start();const pending=defer<Snapshot>();let progress!:(processed:number,total:number)=>void;
+    vi.mocked(bsky.fetchAllMutuals).mockImplementationOnce(async(_a,_did,onProgress)=>{onProgress?.(3);return mutuals});
+    vi.mocked(scanModule.scanCircle).mockImplementationOnce((_a,_input,options)=>{progress=options.onProgress;return pending.promise});
+    enter('#target',river.handle);submit('.tool-form');await vi.waitFor(()=>expect(scanModule.scanCircle).toHaveBeenCalled());click('.loading button');progress(3,3);pending.resolve(fixture());await new Promise(r=>setTimeout(r,0));expect($('.cancel-note').textContent).toContain('cancelled');expect($('.records')).toBeNull();
+  });
+  it('keeps the primary app guard even when a click is programmatically dispatched to disabled navigation',async()=>{
+    await start(false);const disabled=$<HTMLButtonElement>('[data-mode=sent]');disabled.onclick?.call(disabled,new PointerEvent('click'));expect($('#login-handle')).not.toBeNull();
+  });
+  it.each(['sent','received'] as const)('renders complete %s ranks and sorts missing display names safely',async mode=>{
+    await start();click('[data-mode='+mode+']');const data=fixture(mode);data.observations.forEach(o=>{o.moot={...o.moot,displayName:undefined}});data.mutuals=data.observations.map(o=>o.moot);vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(data);submit('.tool-form');await flush();const select=$<HTMLSelectElement>('.toolbar select');select.value='name';select.dispatchEvent(new Event('change'));expect($('.records').textContent).not.toContain('At least');
+  });
+  it('allows cache clearing when signed out and handles a disconnected dialog opener after clearing results',async()=>{
+    await start(false);click('#login-privacy');click('#clear-data');await vi.waitFor(()=>expect($('#clear-status').textContent).toContain('cleared'));click('#close-dialog');
+    vi.mocked(services.initOAuth).mockResolvedValueOnce({session:{sub:'did:plc:alex'},agent});await start();await lookup();$('.scan-actions .text-button').focus();click('.scan-actions .text-button');click('#clear-data');await vi.waitFor(()=>expect($('#clear-status').textContent).toContain('cleared'));$('#modal').dispatchEvent(new Event('cancel'));click('#close-dialog');expect($<HTMLDialogElement>('#modal').open).toBe(false);
+  });
+  it('does not surface an outdated autocomplete error after navigation',async()=>{
+    await start();const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);enter('#target','old');await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalled());click('[data-mode=sent]');pending.reject(Error('old failure'));await new Promise(r=>setTimeout(r,0));expect($('#target-error')).toBeNull();
+  });
+  it('ArrowUp from an unselected multi-option list chooses the last option',async()=>{
+    await start();vi.mocked(bsky.searchActorsTypeahead).mockResolvedValueOnce([jun,river] as never);enter('#target','ri');await vi.waitFor(()=>expect($<HTMLElement>('#suggestions').hidden).toBe(false));$('#target').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp'}));expect($('#target').getAttribute('aria-activedescendant')).toBe('actor-1');$('#target').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp'}));expect($('#target').getAttribute('aria-activedescendant')).toBe('actor-0');
   });
 });

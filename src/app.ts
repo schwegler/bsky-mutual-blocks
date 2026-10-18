@@ -39,7 +39,7 @@ export function createApp(services: Services) {
   const announce = (message: string) => { announcement.textContent = message; };
   const current = (controller: AbortController) => active === controller && !controller.signal.aborted;
   const invalidateSuggestions = () => { suggestionVersion++; clearTimeout(debounce); };
-  const focusMain = () => main.focus();
+  const focusMain = () => main.focus({ preventScroll: true });
 
   function navigation() {
     document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => {
@@ -49,23 +49,23 @@ export function createApp(services: Services) {
   }
   function showIdentity() {
     identity.replaceChildren();
-    if (!profile) return;
     const node = element('div', 'identity');
-    const info = element('span', '', profile.displayName || profile.handle);
-    info.append(element('small', '', '@' + profile.handle));
+    const info = element('span', '', profile!.displayName || profile!.handle);
+    info.append(element('small', '', '@' + profile!.handle));
     const button = element('button', 'text-button', 'Sign out');
     button.type = 'button';
     button.onclick = () => { void logout(button); };
-    node.append(avatar(profile), info, button);
+    node.append(avatar(profile!), info, button);
     identity.append(node);
   }
   function login(message = '') {
     invalidateSuggestions();
     document.body.classList.add('signed-out');
     identity.replaceChildren();
-    main.innerHTML = '<div class="welcome"><h1>A clearer view<br>of your circle.</h1><p class="intro">Explore public direct block records among your Bluesky mutuals, with the scope and limits in plain sight.</p><div class="welcome-grid"><div><h2>Three ways to look.</h2><p>Check an account, or explore blocks sent and received within your mutual circle.</p><div class="flow-key"><b>01</b> Connect with Bluesky OAuth</div><div class="flow-key"><b>02</b> Find accounts you follow who follow you back</div><div class="flow-key"><b>03</b> Check direct records, with coverage notes</div></div><form class="auth-form" novalidate><h2>Start with your account.</h2><p>You’ll continue to your account provider to sign in. Your password belongs there.</p><label for="login-handle">Your Bluesky handle or DID</label><input id="login-handle" placeholder="you.bsky.social" autocomplete="username" spellcheck="false" aria-describedby="login-note login-error" required><p class="error-text" id="login-error" role="alert"></p><button class="primary" type="submit">Continue with Bluesky <span aria-hidden="true">→</span></button><p class="form-note" id="login-note">Your browser contacts Bluesky and account data servers. Successful block lists may remain cached here for up to 24 hours.</p><button type="button" class="text-button" id="login-privacy">Data sources & browser storage →</button></form></div><div class="privacy-strip"><span>No app password required</span><span>Browser-side analysis</span><span>Public direct records only</span></div>' + scope + '</div>';
+    main.innerHTML = '<div class="welcome"><h1>A clearer view<br>of your circle.</h1><p class="intro">Explore public direct block records among your Bluesky mutuals, with the scope and limits in plain sight.</p><div class="welcome-grid"><div><h2>Three ways to look.</h2><p>Check an account, or explore blocks sent and received within your mutual circle.</p><div class="flow-key"><b>01</b> Connect with Bluesky OAuth</div><div class="flow-key"><b>02</b> Find accounts you follow who follow you back</div><div class="flow-key"><b>03</b> Check direct records, with coverage notes</div></div><form class="auth-form" novalidate><h2>Start with your account.</h2><p>You’ll continue to your account provider to sign in. Your password belongs there.</p><label for="login-handle">Your Bluesky handle or DID</label><input id="login-handle" placeholder="you.bsky.social" autocomplete="username" spellcheck="false" aria-describedby="login-note login-error" required><p class="error-text" id="login-error" role="alert"></p><button class="primary" type="submit">Continue with Bluesky <span aria-hidden="true">→</span></button><p class="form-note" id="login-note">Your browser contacts Bluesky and account data servers. Public block lists may be stored in this browser and reused for up to 24 hours.</p><button type="button" class="text-button" id="login-privacy">Data sources & browser storage →</button></form></div><div class="privacy-strip"><span>No app password required</span><span>Browser-side analysis</span><span>Public direct records only</span></div>' + scope + '</div>';
     q('#login-error').textContent = message;
     q('#login-privacy').onclick = showData;
+    q<HTMLInputElement>('#login-handle').oninput = () => { q('#login-handle').removeAttribute('aria-invalid'); q('#login-error').textContent = ''; };
     q<HTMLFormElement>('.auth-form').onsubmit = async event => {
       event.preventDefault();
       if (authBusy) return;
@@ -136,7 +136,6 @@ export function createApp(services: Services) {
     announce('Scan cancelled.'); focusMain();
   }
   async function run(kind: 'new' | 'retry' | 'refresh' = 'new') {
-    if (!agent || active) return;
     const old = kind === 'retry' ? snapshot : null;
     let entered = targetValue;
     if (mode === 'lookup' && !old) {
@@ -153,7 +152,7 @@ export function createApp(services: Services) {
       let target = old?.target;
       if (mode === 'lookup' && !target) {
         busy(controller, 'Resolving the account…', 'Matching the handle or DID to its canonical identifier.');
-        const resolved = await resolveActor(agent, entered);
+        const resolved = await resolveActor(agent!, entered);
         controller.signal.throwIfAborted();
         target = { did: resolved.did, handle: resolved.profile?.handle };
       }
@@ -161,24 +160,23 @@ export function createApp(services: Services) {
       let circle = old ? { mutuals: old.mutuals, fetchedAt: old.circleFetchedAt } : cached;
       if (!circle) {
         busy(controller, 'Finding your mutuals…', 'Reading accounts you follow and checking who follows you back.');
-        const mutuals = await fetchAllMutuals(agent, userDid, count => busy(controller, 'Finding your mutuals…', count + ' mutual followers found so far.'), controller.signal);
+        const mutuals = await fetchAllMutuals(agent!, userDid, count => busy(controller, 'Finding your mutuals…', count + ' mutual followers found so far.'), controller.signal);
         controller.signal.throwIfAborted();
         circle = { mutuals, fetchedAt: Date.now() }; saveCircle(userDid, circle);
       }
-      if (!current(controller)) return;
       if (!circle.mutuals.length) {
         snapshot = null; active = null; shell();
         showEmpty('No mutual followers found.', 'No accounts in the returned follow list were marked as following you back. Refresh the circle if you expected mutuals here.', () => { void run('refresh'); }, 'Refresh mutual circle');
         announce('No mutual followers found in the returned circle.'); return;
       }
-      const next = await scanCircle(agent, { mode, target, mutuals: circle.mutuals, circleFetchedAt: circle.fetchedAt }, {
+      const next = await scanCircle(agent!, { mode, target, mutuals: circle.mutuals, circleFetchedAt: circle.fetchedAt }, {
         signal: controller.signal, forceRefresh: kind !== 'new', previous: old ?? undefined,
         onProgress: (processed, total) => busy(controller, 'Checking public records…', processed + ' of ' + total + ' accounts processed.', processed, total)
       });
       if (!current(controller)) return;
       snapshot = next; active = null; filter = ''; sort = 'count'; renderResults();
       const incomplete = next.observations.filter(o => !o.isComplete).length;
-      announce(incomplete ? 'Scan finished with partial coverage. ' + incomplete + ' accounts could not be fully checked.' : 'Scan finished. All accounts in this circle were processed; direct records only.');
+      announce(incomplete ? 'Scan finished with partial coverage. Incomplete accounts: ' + incomplete + '.' : 'Scan finished. All accounts in this circle were processed; direct records only.');
       focusMain();
     } catch (error) {
       if (!current(controller)) return;
@@ -205,7 +203,7 @@ export function createApp(services: Services) {
     const cached = data.observations.filter(o => o.source === 'cache');
     const section = element('section', 'section-rule'); section.setAttribute('aria-label', 'Scan results');
     const head = element('div', 'result-head'); const title = element('div');
-    title.append(element('h2', '', mode === 'lookup' ? rows.length + ' direct block record' + (rows.length === 1 ? '' : 's') + ' found' : 'Blocks ' + (mode === 'sent' ? 'sent by' : 'received by') + ' your mutuals'));
+    title.append(element('h2', '', mode === 'lookup' ? rows.length ? rows.length + (rows.length === 1 ? ' mutual with a direct block record' : ' mutuals with direct block records') : 'No matching direct block records' : 'Blocks ' + (mode === 'sent' ? 'sent by' : 'received by') + ' your mutuals'));
     title.append(element('p', 'result-context', mode === 'lookup' ? 'Naming ' + (data.target!.handle ? '@' + data.target!.handle : data.target!.did) : 'Ranked by records observed within your mutual circle'));
     const meta = element('div', 'scan-meta');
     meta.append(element('span', '', data.mutuals.length + ' mutuals in this snapshot'), element('span', '', 'Circle fetched ' + new Date(data.circleFetchedAt).toLocaleString()));
@@ -222,7 +220,7 @@ export function createApp(services: Services) {
       for (const item of incomplete) list.append(element('li', '', '@' + item.moot.handle + ' — ' + getErrorReasonMessage(item.errorReason) + '; ' + item.blockedDids.length + ' records read.'));
       details.append(list); content.append(details);
       const retry = element('button', 'secondary', 'Retry incomplete'); retry.onclick = () => { void run('retry'); };
-      warning.append(element('span', 'symbol', '△'), content, retry); section.append(warning);
+      const symbol = element('span', 'symbol', '△'); symbol.setAttribute('aria-hidden', 'true'); warning.append(symbol, content, retry); section.append(warning);
     }
     if (cached.length) {
       const notice = element('div', 'notice'); const copy = element('div');
@@ -248,7 +246,7 @@ export function createApp(services: Services) {
     }
     const limits = element('div'); limits.innerHTML = scope; section.append(limits);
     const times = data.observations.map(o => o.fetchedAt);
-    section.append(element('p', '', 'Block list observations: ' + new Date(Math.min(...times)).toLocaleString() + ' – ' + new Date(Math.max(...times)).toLocaleString() + '. A retry replaces the retried accounts’ observations; sources need not share one observation time.'));
+    section.append(element('p', '', 'Block list observations: ' + new Date(Math.min(...times)).toLocaleString() + ' – ' + new Date(Math.max(...times)).toLocaleString() + '. A retry replaces the retried accounts’ observations; sources need not share one observation time. Times are shown in your browser’s local timezone.'));
     q('#content').replaceChildren(section);
     q('#content').setAttribute('aria-busy', 'false');
     if (rows.length) drawRows();
@@ -267,7 +265,8 @@ export function createApp(services: Services) {
     const details = element('details', 'record'); const summary = element('summary');
     const partial = snapshot!.observations.some(o => !o.isComplete);
     const direction = mode === 'lookup' ? 'Blocks ' + (snapshot!.target!.handle ? '@' + snapshot!.target!.handle : snapshot!.target!.did) : (partial ? 'At least ' : '') + row.count + (mode === 'sent' ? ' mutual' + (row.count === 1 ? '' : 's') + ' blocked' : ' mutual' + (row.count === 1 ? '' : 's') + ' blocking this account');
-    const arrow = element('span', 'row-action', 'View details →');
+    const arrow = element('span', 'row-action');
+    arrow.innerHTML = 'View details <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 10h13m-5-5 5 5-5 5"/></svg>';
     summary.append(person(row.account), element('span', 'direction', direction), arrow);
     const body = element('div', 'record-body');
     if (mode === 'lookup') {
@@ -300,7 +299,7 @@ export function createApp(services: Services) {
           actors = result; list.replaceChildren();
           actors.forEach((actor, index) => {
             const option = element('div'); option.id = 'actor-' + index; option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false'); option.append(person(actor));
-            option.onmousedown = event => event.preventDefault(); option.onclick = () => choose(index); list.append(option);
+            option.onpointerdown = event => event.preventDefault(); option.onclick = () => choose(index); list.append(option);
           });
           list.hidden = !actors.length; input.setAttribute('aria-expanded', String(actors.length > 0));
         } catch { if (version === suggestionVersion && input.isConnected) q('#target-error').textContent = 'Suggestions unavailable. You can still enter a full handle or DID.'; }
@@ -309,7 +308,7 @@ export function createApp(services: Services) {
     input.onkeydown = event => {
       if (event.key === 'Escape') { invalidateSuggestions(); close(); }
       if (list.hidden || !actors.length) return;
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); selected = (selected + (event.key === 'ArrowDown' ? 1 : -1) + actors.length) % actors.length; highlight(); }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); selected = selected < 0 ? (event.key === 'ArrowDown' ? 0 : actors.length - 1) : (selected + (event.key === 'ArrowDown' ? 1 : -1) + actors.length) % actors.length; highlight(); }
       if (event.key === 'Enter' && selected >= 0) { event.preventDefault(); choose(selected); }
     };
     input.onblur = () => { invalidateSuggestions(); close(); };
@@ -321,7 +320,7 @@ export function createApp(services: Services) {
   }
   function closeDialog() { dialog.close(); if (opener?.isConnected) opener.focus(); }
   function showData() {
-    openDialog('<h2 id="dialog-title">What this view can tell you.</h2><p>Mutuals are accounts you follow that the authenticated follow response marks as following you back. We read public <code>app.bsky.graph.block</code> records from their personal data servers.</p><h3>Scope before certainty.</h3><p>Direct records only. List-based blocks, mutes, motives and network-wide relationships are outside scope. Partial scans can miss matches; records can change.</p><h3>Browser storage.</h3><p>Successful block lists are cached in IndexedDB for up to 24 hours. Mutual profiles are stored in this tab’s sessionStorage for up to 15 minutes. Signing out clears the mutual cache, but block lists remain until expired or cleared below. OAuth session persistence is managed by the AT Protocol client.</p><p>Your browser contacts identity, Bluesky and account data servers. Those services may log requests. The tool cannot promise anonymity or that no third party sees a lookup. OAuth currently uses the transitional atproto transition:generic scope; review the provider’s authorization screen.</p><div class="privacy-controls"><button class="secondary" id="clear-data" type="button">Clear cached scan data</button><p id="clear-status" role="status"></p></div>');
+    openDialog('<h2 id="dialog-title">What this view can tell you.</h2><p>Mutuals are accounts you follow that the authenticated follow response marks as following you back. We read public <code>app.bsky.graph.block</code> records from their personal data servers.</p><h3>Scope before certainty.</h3><p>Direct records only. List-based blocks, mutes, motives and network-wide relationships are outside scope. Partial scans can miss matches; records can change.</p><h3>Browser storage.</h3><p>Successful block lists are stored in IndexedDB and may be reused for up to 24 hours. Stored lists remain until overwritten or cleared. Mutual profiles are stored in this tab’s sessionStorage and reused for up to 15 minutes. Signing out clears the mutual cache, but stored block lists remain until cleared below. OAuth session persistence is managed by the AT Protocol client.</p><p>Your browser contacts identity, Bluesky and account data servers. Those services may log requests. The tool cannot promise anonymity or that no third party sees a lookup. OAuth currently uses the transitional atproto transition:generic scope; review the provider’s authorization screen.</p><div class="privacy-controls"><button class="secondary" id="clear-data" type="button">Clear cached scan data</button><p id="clear-status" role="status"></p></div>');
     const button = dialogContent.querySelector<HTMLButtonElement>('#clear-data')!;
     button.onclick = async () => {
       button.disabled = true;
@@ -333,7 +332,7 @@ export function createApp(services: Services) {
   }
   async function logout(button: HTMLButtonElement) {
     active?.abort(); active = null; invalidateSuggestions(); button.disabled = true;
-    try { await services.signOut(); agent = null; userDid = ''; profile = null; snapshot = null; try { clearCircleCache(); } catch { /* sign-out must still complete */ } login(); announce('Signed out. Cached public block lists remain until cleared or expired.'); focusMain(); }
+    try { await services.signOut(); agent = null; userDid = ''; profile = null; snapshot = null; try { clearCircleCache(); } catch { /* sign-out must still complete */ } login(); announce('Signed out. Stored public block lists remain until cleared or overwritten.'); focusMain(); }
     catch { button.disabled = false; announce('Sign-out failed. Please try again.'); const note = element('p', 'error-notice', 'Sign-out failed. Please try again.'); main.prepend(note); }
   }
   document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => {
