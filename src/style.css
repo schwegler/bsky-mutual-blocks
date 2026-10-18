@@ -9,3 +9,4 @@
 .detail-person{justify-content:space-between;align-items:start;flex-wrap:wrap}.detail-person .profile-link{font-size:12px}
 
 .creator-credit{display:inline-flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;font-size:12px;min-height:44px}.creator-credit img{display:block;width:106px;height:28px;object-fit:contain}.creator-credit span{font:12px/1.5 system-ui,sans-serif!important}.creator-credit:hover{color:var(--violet)}footer>span{align-self:center}footer a{color:var(--violet)}@media(max-width:720px){.creator-credit{margin-bottom:7px}footer .creator-credit span{display:inline}}
+.person>span:last-child{min-width:0;overflow-wrap:anywhere}.person b{overflow-wrap:anywhere}.identity>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.identity small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
