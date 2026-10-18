@@ -9,3 +9,12 @@ it('keeps adversarial profile fields as text and validates image URLs before pro
   expect(avatar({did:'did:plc:x',handle:'x.example.test'}).textContent).toBe('X');
   expect(element('span').textContent).toBe('');expect(describeError(Error('plain error'))).toBe('plain error');expect(describeError('untrusted')).toContain('could not be completed');
 });
+
+it('gives result handles explicit HTTPS profile destinations without toggling their enclosing disclosure',()=>{
+  const profile={did:'did:plc:binfire',handle:'binfire.bsky.social'};
+  const details=document.createElement('details');const summary=document.createElement('summary');summary.append(person(profile,true));details.append(summary);document.body.append(details);
+  let bubbled=false;summary.addEventListener('click',()=>{bubbled=true});
+  const link=summary.querySelector('a')!;expect(link.href).toBe('https://bsky.app/profile/did%3Aplc%3Abinfire');expect(link.textContent).toBe('@binfire.bsky.social');expect(link.getAttribute('aria-label')).toBe('Open binfire.bsky.social on Bluesky (new tab)');
+  const event=new Event('click',{bubbles:true,cancelable:true});link.dispatchEvent(event);expect(bubbled).toBe(false);expect(event.defaultPrevented).toBe(false);expect(details.open).toBe(false);
+  expect(person(profile).querySelector('a')).toBeNull();
+});
