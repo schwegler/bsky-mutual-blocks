@@ -52,7 +52,7 @@ Scans use at most five concurrent account workers. Pagination anomalies are surf
 
 The repository is configured for Cloudflare static assets (`dist/`) and CI. Main-branch pushes may deploy automatically through existing hosting configuration; PR previews depend on that external configuration. This project does not require an application backend.
 
-A [schweg.xyz](https://schweg.xyz/) project by Andrew Schwegler. Contact: [andrew@schweg.xyz](mailto:andrew@schweg.xyz). More at [taco 'bout it](https://tacobout.online), the shared public-facing brand. Bluesky: [@schwegler.lol](https://bsky.app/profile/schwegler.lol).
+A [schweg.xyz](https://schweg.xyz/) project by Andrew Schwegler. The footer uses the canonical path-based script wordmark; its usage and SIL Open Font License are retained in `public/assets/brand/`. Contact: [andrew@schweg.xyz](mailto:andrew@schweg.xyz). More at [taco 'bout it](https://tacobout.online), the shared public-facing brand. Bluesky: [@schwegler.lol](https://bsky.app/profile/schwegler.lol).
 
 ## License
 
