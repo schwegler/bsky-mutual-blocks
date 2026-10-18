@@ -160,3 +160,11 @@ describe('asynchronous and focus regression boundaries',()=>{
     await start();vi.mocked(bsky.searchActorsTypeahead).mockResolvedValueOnce([jun,river] as never);enter('#target','ri');await vi.waitFor(()=>expect($<HTMLElement>('#suggestions').hidden).toBe(false));$('#target').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp'}));expect($('#target').getAttribute('aria-activedescendant')).toBe('actor-1');$('#target').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp'}));expect($('#target').getAttribute('aria-activedescendant')).toBe('actor-0');
   });
 });
+describe('recovery from interrupted account and storage actions',()=>{
+  it('restores the previous result and enables controls when sign-out fails during a new scan',async()=>{
+    await start();await lookup();const pending=defer<Snapshot>();vi.mocked(scanModule.scanCircle).mockReturnValueOnce(pending.promise);vi.mocked(services.signOut).mockRejectedValueOnce(Error('offline'));submit('.tool-form');await vi.waitFor(()=>expect($('.loading')).not.toBeNull());click('#identity button');await vi.waitFor(()=>expect($('.error-notice')).not.toBeNull());expect($('.records')).not.toBeNull();expect($<HTMLInputElement>('#target').disabled).toBe(false);pending.resolve(fixture());await new Promise(r=>setTimeout(r,0));expect($('.error-notice')).not.toBeNull();
+  });
+  it('cancels an active scan before clearing data and keeps the app usable if clearing fails',async()=>{
+    await start();const pending=defer<Snapshot>();vi.mocked(scanModule.scanCircle).mockReturnValueOnce(pending.promise);vi.spyOn(scanModule,'clearBlockCache').mockRejectedValueOnce(Error('blocked'));enter('#target',river.handle);submit('.tool-form');await vi.waitFor(()=>expect(scanModule.scanCircle).toHaveBeenCalled());click('#scope');click('#clear-data');await vi.waitFor(()=>expect($('#clear-status').textContent).toContain('could not be cleared'));expect($<HTMLInputElement>('#target').disabled).toBe(false);pending.resolve(fixture());await new Promise(r=>setTimeout(r,0));expect($('.records')).toBeNull();
+  });
+});

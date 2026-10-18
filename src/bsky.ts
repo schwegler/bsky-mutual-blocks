@@ -129,7 +129,6 @@ export async function fetchAllUserBlocks(
   }
 
   const blockedDids: string[] = [];
-  options.onSource?.('network', Date.now());
   const requestSignal = () => options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000);
 
   try {
@@ -284,6 +283,8 @@ export async function fetchAllUserBlocks(
     options.signal?.throwIfAborted();
     console.error('Error fetching blocks for', repoDid, err);
     return { blockedDids, isComplete: false, errorReason: 'unknown' };
+  } finally {
+    options.onSource?.('network', Date.now());
   }
 }
 

@@ -246,7 +246,7 @@ export function createApp(services: Services) {
     }
     const limits = element('div'); limits.innerHTML = scope; section.append(limits);
     const times = data.observations.map(o => o.fetchedAt);
-    section.append(element('p', '', 'Block list observations: ' + new Date(Math.min(...times)).toLocaleString() + ' – ' + new Date(Math.max(...times)).toLocaleString() + '. A retry replaces the retried accounts’ observations; sources need not share one observation time. Times are shown in your browser’s local timezone.'));
+    section.append(element('p', '', 'Block list observations: ' + new Date(Math.min(...times)).toLocaleString() + ' – ' + new Date(Math.max(...times)).toLocaleString() + '. A retry replaces the retried accounts’ observations; sources need not share one observation time. Times reflect fetch attempts or cached snapshots, not record creation, and use your browser’s local timezone.'));
     q('#content').replaceChildren(section);
     q('#content').setAttribute('aria-busy', 'false');
     if (rows.length) drawRows();
@@ -324,7 +324,8 @@ export function createApp(services: Services) {
     const button = dialogContent.querySelector<HTMLButtonElement>('#clear-data')!;
     button.onclick = async () => {
       button.disabled = true;
-      active?.abort(); active = null; invalidateSuggestions();
+      if (active) cancelScan();
+      invalidateSuggestions();
       try { clearCircleCache(); await clearBlockCache(); snapshot = null; if (agent && !active) ready(); dialogContent.querySelector('#clear-status')!.textContent = 'Cached scan data cleared. Your OAuth session is unchanged.'; }
       catch { dialogContent.querySelector('#clear-status')!.textContent = 'Some cached data could not be cleared. Try again or use your browser’s site-data settings.'; }
       finally { button.disabled = false; }
@@ -333,7 +334,7 @@ export function createApp(services: Services) {
   async function logout(button: HTMLButtonElement) {
     active?.abort(); active = null; invalidateSuggestions(); button.disabled = true;
     try { await services.signOut(); agent = null; userDid = ''; profile = null; snapshot = null; try { clearCircleCache(); } catch { /* sign-out must still complete */ } login(); announce('Signed out. Stored public block lists remain until cleared or overwritten.'); focusMain(); }
-    catch { button.disabled = false; announce('Sign-out failed. Please try again.'); const note = element('p', 'error-notice', 'Sign-out failed. Please try again.'); main.prepend(note); }
+    catch { button.disabled = false; if (snapshot) renderResults(); else ready(); announce('Sign-out failed. Please try again.'); const note = element('p', 'error-notice', 'Sign-out failed. Please try again.'); main.prepend(note); }
   }
   document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => {
     button.onclick = () => { if (!agent || active) return; mode = button.dataset.mode as Mode; snapshot = null; filter = ''; sort = 'count'; ready(); focusMain(); };
