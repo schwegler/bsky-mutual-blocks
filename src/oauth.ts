@@ -9,7 +9,9 @@ export async function initOAuth(): Promise<{ session: OAuthSession | null; agent
   const isLocal = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
   const clientId = isLocal
     ? `http://127.0.0.1:5173/client-metadata.json`
-    : `${window.location.origin}/client-metadata.json`;
+    : window.location.hostname === 'moots.schweg.xyz'
+      ? `${window.location.origin}/client-metadata-moots.json`
+      : `${window.location.origin}/client-metadata.json`;
 
   oauthClient = new BrowserOAuthClient({
     handleResolver: 'https://bsky.social',
