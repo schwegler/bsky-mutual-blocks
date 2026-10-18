@@ -15,3 +15,5 @@ html[data-season="halloween"] .seasonal-controls{border-top-color:#b98d5766}
 @media(max-width:600px){.seasonal-scene{gap:12px;padding:20px 16px;margin-bottom:24px;border-radius:10px}.seasonal-scene img{width:80px;height:112px}.seasonal-scene .seasonal-detail{font-size:12px}.seasonal-controls{justify-content:flex-start}.seasonal-status{flex-basis:100%}}
 @media print{.seasonal-scene,.seasonal-controls{display:none!important}}
 @media(prefers-reduced-motion:reduce){.seasonal-scene,.seasonal-controls{animation:none!important;transition:none!important}}
+
+.seasonal-moots{margin-top:24px;max-width:min(1160px,calc(100% - 40px))}
