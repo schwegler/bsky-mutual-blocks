@@ -195,3 +195,11 @@ describe('comparison circle copy',()=>{
     click('#scope');expect($('#modal-content').textContent).toContain('not the lookup subject');
   });
 });
+
+describe('profile handle destinations',()=>{
+  it.each(['lookup','sent','received'] as const)('uses explicit profile links in %s result summaries and preserves contact mail',async mode=>{
+    await start();if(mode==='lookup')await lookup();else{click('[data-mode='+mode+']');submit('.tool-form');await flush()}
+    const link=$<HTMLAnchorElement>('.record summary .handle-link');expect(link.href).toBe('https://bsky.app/profile/'+encodeURIComponent(mode==='received'?river.did:jun.did));expect(link.getAttribute('aria-label')).toContain('on Bluesky');expect(document.querySelector('meta[name="format-detection"]')?.getAttribute('content')).toContain('email=no');expect(document.querySelector('a[href="mailto:andrew@schweg.xyz"]')).not.toBeNull();
+    const row=$<HTMLDetailsElement>('.record');row.open=true;expect(row.open).toBe(true);
+  });
+});
