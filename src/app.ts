@@ -267,13 +267,13 @@ export function createApp(services: Services) {
     const direction = mode === 'lookup' ? 'Blocks ' + (snapshot!.target!.handle ? '@' + snapshot!.target!.handle : snapshot!.target!.did) : (partial ? 'At least ' : '') + row.count + (mode === 'sent' ? ' mutual' + (row.count === 1 ? '' : 's') + ' blocked' : ' mutual' + (row.count === 1 ? '' : 's') + ' blocking this account');
     const arrow = element('span', 'row-action');
     arrow.innerHTML = 'View details <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 10h13m-5-5 5 5-5 5"/></svg>';
-    summary.append(person(row.account), element('span', 'direction', direction), arrow);
+    summary.append(person(row.account, true), element('span', 'direction', direction), arrow);
     const body = element('div', 'record-body');
     if (mode === 'lookup') {
       body.append(element('p', '', 'Direction: @' + row.account.handle + ' → ' + snapshot!.target!.did), element('p', '', 'A direct public record names the resolved target. It does not explain intent, current app behavior or a block in the reverse direction.'));
     } else {
       body.append(element('p', '', mode === 'sent' ? 'Direct record subjects — this account → listed accounts.' : 'Direct record authors — listed accounts → this account.'));
-      for (const related of row.related) { const item = element('div', 'detail-person'); item.append(person(related), profileLink(related)); body.append(item); }
+      for (const related of row.related) { const item = element('div', 'detail-person'); item.append(person(related, true), profileLink(related)); body.append(item); }
     }
     body.append(element('p', '', 'Collection: app.bsky.graph.block. Direct records only; not a cryptographic verification of repository contents.'), profileLink(row.account));
     details.append(summary, body); return details;

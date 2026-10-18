@@ -30,10 +30,16 @@ function initials(profile: MutualProfile): HTMLElement {
   node.setAttribute('aria-hidden', 'true');
   return node;
 }
-export function person(profile: MutualProfile): HTMLElement {
+export function person(profile: MutualProfile, linkedHandle = false): HTMLElement {
   const node = element('span', 'person');
   const info = element('span');
-  info.append(element('b', '', profile.displayName || profile.handle), element('small', '', '@' + profile.handle));
+  const handle = element('small');
+  if (linkedHandle) {
+    const link = profileLink(profile);
+    link.className = 'handle-link'; link.textContent = '@' + profile.handle;
+    handle.append(link);
+  } else handle.textContent = '@' + profile.handle;
+  info.append(element('b', '', profile.displayName || profile.handle), handle);
   node.append(avatar(profile), info);
   return node;
 }
@@ -42,6 +48,8 @@ export function profileLink(profile: MutualProfile): HTMLAnchorElement {
   link.href = 'https://bsky.app/profile/' + encodeURIComponent(profile.did);
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
+  // Keep a profile link inside summary independent from its disclosure action.
+  link.addEventListener('click', event => event.stopPropagation());
   link.setAttribute('aria-label', 'Open ' + profile.handle + ' on Bluesky (new tab)');
   return link;
 }
