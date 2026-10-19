@@ -1,0 +1,17 @@
+{
+  "systemDefault": true,
+  "liveOSChanges": true,
+  "explicitLightDarkPersist": true,
+  "systemClearsOverride": true,
+  "seasonalIndependent": true,
+  "crossTab": true,
+  "outsideSeasonMenu": true,
+  "expiryKeepsBaseMenu": true,
+  "widths": [
+    1440,
+    820,
+    390,
+    320
+  ],
+  "errors": []
+}
