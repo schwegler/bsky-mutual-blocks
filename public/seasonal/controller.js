@@ -91,7 +91,7 @@
     dismiss.addEventListener('click',dismissMascot);
     const changeMotion=()=>{paused=!paused;save(motionKey,paused?'paused':'auto');apply('motion');};motion.addEventListener('click',changeMotion);effects.addEventListener('click',()=>{hiddenEffects=!hiddenEffects;save(effectsKey,hiddenEffects?'hidden':'auto');apply('atmosphere');});
     toggle.addEventListener('click',()=>choose(active()?'off':season.theme,'toggle'));
-    restoreInvite.addEventListener('click',()=>{dismissed=false;invited=true;save(promptKey,null,true);renderOverlay();closeMenu();});
+    restoreInvite.addEventListener('click',()=>{if(!active()){choice=null;save(themeKey,null);}dismissed=false;invited=true;save(promptKey,null,true);renderOverlay();closeMenu();});
     reset.addEventListener('click',()=>{choice=null;paused=false;hiddenEffects=false;dismissed=false;invited=false;save(themeKey,null);save(motionKey,null);save(effectsKey,null);save(promptKey,null,true);apply('reset');schedule();});
     listen(window,'storage',event=>{if([themeKey,motionKey,effectsKey,null].includes(event.key)){choice=read(themeKey);paused=read(motionKey)==='paused';hiddenEffects=read(effectsKey)==='hidden';apply('storage');schedule();}});
     listen(reduce,'change',()=>{updateMotion();queue();});
