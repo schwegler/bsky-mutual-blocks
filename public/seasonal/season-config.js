@@ -4,7 +4,7 @@ window.SchwegSeasonalConfig = {
   "invitationDelayMs": 1000,
   "profile": {
     "id": "moots",
-    "character": "the ghosts"
+    "character": "Hitch"
   },
   "seasons": [
     {
