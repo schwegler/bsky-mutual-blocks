@@ -26,9 +26,8 @@
     const flight = el('span','seasonal-flight'),image=el('img');image.src=new URL(season.asset,base).href;image.alt='';image.width=104;image.height=132;image.decoding='async';flight.append(image);character.append(flight);
     const dismiss = button('×','seasonal-dismiss');dismiss.setAttribute('aria-label',`Dismiss ${season.label} character`);
     const notice=el('span','seasonal-notice',season.notice||`${season.label} on`);notice.hidden=true;
-    const actions=el('div','seasonal-overlay-actions');actions.hidden=true;
     const undo=button('Undo','seasonal-undo');undo.setAttribute('aria-label','Restore original appearance');
-    const pause=button('Pause','seasonal-pause');actions.append(undo,pause);overlay.append(character,dismiss);document.body.append(overlay);
+    overlay.append(character,dismiss);document.body.append(overlay);
     const atmosphere=el('div','seasonal-atmosphere');atmosphere.setAttribute('aria-hidden','true');atmosphere.hidden=true;
     for(const name of season.decorations||[])atmosphere.append(el('span',`seasonal-${name}`));document.body.prepend(atmosphere);
     const originals = selector => [...document.querySelectorAll(selector)].map(image=>({image,attributes:Object.fromEntries(['src','srcset','sizes','alt'].map(key=>[key,image.getAttribute(key)])),aspect:image.style.aspectRatio,fit:image.style.objectFit,ratio:(image.naturalWidth&&image.naturalHeight)?`${image.naturalWidth}/${image.naturalHeight}`:(image.getAttribute('width')&&image.getAttribute('height'))?`${image.getAttribute('width')}/${image.getAttribute('height')}`:null}));
@@ -44,7 +43,8 @@
     if(existingMode){existingMode.before(controls);panel.append(existingMode);}else{(document.querySelector('header .header-right')||document.querySelector('header')).append(controls);}
     panel.append(toggle,undo,motion,effects,restoreInvite,reset,notice,status);controls.append(disclosure,panel);
     const closeMenu=()=>{panel.hidden=true;disclosure.setAttribute('aria-expanded','false');};
-    disclosure.addEventListener('click',()=>{panel.hidden=!panel.hidden;disclosure.setAttribute('aria-expanded',String(!panel.hidden));});
+    const placeMenu=()=>{controls.style.setProperty('--appearance-top',`${Math.max(8,Math.min(disclosure.getBoundingClientRect().bottom+8,innerHeight-260))}px`);};listen(window,'resize',placeMenu,{passive:true});
+    disclosure.addEventListener('click',()=>{placeMenu();panel.hidden=!panel.hidden;disclosure.setAttribute('aria-expanded',String(!panel.hidden));});
     listen(document,'click',event=>{if(!controls.contains(event.target))closeMenu();});
     listen(document,'keydown',event=>{if(event.key==='Escape'&&controls.contains(document.activeElement)){closeMenu();disclosure.focus();event.preventDefault();}});
     listen(document,'focusin',event=>{if(!controls.contains(event.target))closeMenu();});
@@ -67,7 +67,6 @@
     const queue=()=>{if(expired)return;if(!frame)frame=requestAnimationFrame(position);};
     const updateMotion=()=>{
       const stopped=paused||reduce.matches;const state=stopped?'paused':'auto';overlay.dataset.seasonMotion=state;atmosphere.dataset.seasonMotion=state;if(active())root.dataset.seasonMotion=state;else restoreAttribute('data-season-motion');
-      pause.textContent=paused?'Resume':'Pause';pause.setAttribute('aria-label',`${paused?'Resume':'Pause'} ${season.label} animations`);pause.setAttribute('aria-pressed',String(stopped));pause.disabled=reduce.matches;
       motion.textContent=reduce.matches?'Motion reduced by device':`${paused?'Resume':'Pause'} seasonal animations`;motion.setAttribute('aria-pressed',String(stopped));motion.disabled=reduce.matches;
     };
     const renderOverlay=()=>{
@@ -90,7 +89,7 @@
     undo.addEventListener('click',()=>{choose('off','undo');focusContent();});
     const dismissMascot=()=>{dismissed=true;save(promptKey,'dismissed',true);clearTimeout(timer);renderOverlay();disclosure.focus({preventScroll:true});};
     dismiss.addEventListener('click',dismissMascot);
-    const changeMotion=()=>{paused=!paused;save(motionKey,paused?'paused':'auto');apply('motion');};pause.addEventListener('click',changeMotion);motion.addEventListener('click',changeMotion);effects.addEventListener('click',()=>{hiddenEffects=!hiddenEffects;save(effectsKey,hiddenEffects?'hidden':'auto');apply('atmosphere');});
+    const changeMotion=()=>{paused=!paused;save(motionKey,paused?'paused':'auto');apply('motion');};motion.addEventListener('click',changeMotion);effects.addEventListener('click',()=>{hiddenEffects=!hiddenEffects;save(effectsKey,hiddenEffects?'hidden':'auto');apply('atmosphere');});
     toggle.addEventListener('click',()=>choose(active()?'off':season.theme,'toggle'));
     restoreInvite.addEventListener('click',()=>{dismissed=false;invited=true;save(promptKey,null,true);renderOverlay();closeMenu();});
     reset.addEventListener('click',()=>{choice=null;paused=false;hiddenEffects=false;dismissed=false;invited=false;save(themeKey,null);save(motionKey,null);save(effectsKey,null);save(promptKey,null,true);apply('reset');schedule();});

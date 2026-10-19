@@ -49,3 +49,5 @@ html[data-season="halloween"][data-seasonal-profile="moots"] .error-notice{backg
 html[data-season="halloween"] .seasonal-appearance-panel,html[data-theme="dark"] .seasonal-appearance-panel {background:#241d29;color:#fff0df;}
 @media(max-width:600px){.seasonal-controls {padding:0;margin-left:4px;} .seasonal-controls > .seasonal-appearance-toggle {padding:8px 6px;font-size:11px;} }
 @media print{.seasonal-controls{display:none!important;}}
+
+@media(max-width:600px){.seasonal-appearance-panel{position:fixed;left:12px;right:12px;top:var(--appearance-top,80px);width:auto;max-width:none;max-height:calc(100dvh - var(--appearance-top,80px) - 12px);}}
