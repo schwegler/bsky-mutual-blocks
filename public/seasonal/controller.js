@@ -34,20 +34,12 @@
     const portraits=[];
     const marks=originals('img[src*="/schweg-signature-ink.png"]');
     const restore = ({image,attributes,aspect,fit}) => {Object.entries(attributes).forEach(([key,value])=>value===null?image.removeAttribute(key):image.setAttribute(key,value));image.style.aspectRatio=aspect;image.style.objectFit=fit;image.classList.remove('seasonal-light-mark');};
-    const controls=el('div','seasonal-controls');controls.dataset.seasonalControls='';
-    const disclosure=button('Appearance','seasonal-appearance-toggle');disclosure.setAttribute('aria-expanded','false');disclosure.setAttribute('aria-controls','seasonal-appearance-panel');
-    const panel=el('div','seasonal-appearance-panel');panel.id='seasonal-appearance-panel';panel.hidden=true;panel.setAttribute('role','group');panel.setAttribute('aria-label','Appearance settings');
+    const shared=window.SchwegAppearance;
+    const controls=shared.controls,panel=shared.panel,disclosure=shared.disclosure,closeMenu=shared.close;
+    controls.dataset.seasonalControls='';
     const toggle=button(`${season.label} appearance`),motion=button('Pause seasonal animations'),effects=button('Hide atmosphere'),reset=button('Reset appearance'),restoreInvite=button('Show Halloween character');
     const status=el('span','seasonal-status');status.setAttribute('role','status');status.setAttribute('aria-label','Seasonal appearance status');
-    const existingMode=document.querySelector('.tacobout-theme-control');
-    if(existingMode){existingMode.before(controls);panel.append(existingMode);}else{(document.querySelector('header .header-right')||document.querySelector('header')).append(controls);}
-    panel.append(toggle,undo,motion,effects,restoreInvite,reset,notice,status);controls.append(disclosure,panel);
-    const closeMenu=()=>{panel.hidden=true;disclosure.setAttribute('aria-expanded','false');};
-    const placeMenu=()=>{controls.style.setProperty('--appearance-top',`${Math.max(8,Math.min(disclosure.getBoundingClientRect().bottom+8,innerHeight-260))}px`);};listen(window,'resize',placeMenu,{passive:true});
-    disclosure.addEventListener('click',()=>{placeMenu();panel.hidden=!panel.hidden;disclosure.setAttribute('aria-expanded',String(!panel.hidden));});
-    listen(document,'click',event=>{if(!controls.contains(event.target))closeMenu();});
-    listen(document,'keydown',event=>{if(event.key==='Escape'&&controls.contains(document.activeElement)){closeMenu();disclosure.focus();event.preventDefault();}});
-    listen(document,'focusin',event=>{if(!controls.contains(event.target))closeMenu();});
+    const seasonControls=[toggle,undo,motion,effects,restoreInvite,reset,notice,status];panel.append(...seasonControls);
     const active=()=>choice===season.theme;
     // Layout reads happen only in response to page events. Keep a safe current position when possible.
     const position=()=>{
@@ -103,11 +95,11 @@
     const expire = () => {
       expired=true;clearTimeout(timer);if(frame)cancelAnimationFrame(frame);events.abort();sizeObserver?.disconnect();
       portraits.forEach(restore);marks.forEach(restore);Object.keys(snapshot).forEach(restoreAttribute);
-      if(overlay.contains(document.activeElement))focusContent();overlay.remove();atmosphere.remove();if(existingMode)controls.before(existingMode);controls.remove();
+      if(overlay.contains(document.activeElement))focusContent();overlay.remove();atmosphere.remove();seasonControls.forEach(node=>node.remove());delete controls.dataset.seasonalControls;
       window.dispatchEvent(new CustomEvent('schweg:seasonal-change',{detail:{schemaVersion:2,seasonId:season.id,theme:season.theme,active:false,motion:snapshot['data-season-motion']||'auto',source:'expired'}}));
     };
     const armBoundary = () => { const remaining=boundary-Date.now();if(remaining<=0)expire();else deadlineTimer=setTimeout(armBoundary,Math.min(remaining,2147483647)); };
     apply();schedule();if(Number.isFinite(boundary))armBoundary();
   };
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+  if(!window.SchwegAppearance)document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })();
