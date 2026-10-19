@@ -13,7 +13,7 @@ function setup(dark = true, saved?: string, denied = false) {
   win.eval(source);
   const beforeMount = win.document.documentElement.dataset.theme;
   win.document.dispatchEvent(new win.Event('DOMContentLoaded'));
-  const button = (text: string) => [...win.document.querySelectorAll<HTMLButtonElement>('button')].find(n => n.textContent === text)!;
+  const button = (text: string) => [...win.document.querySelectorAll('button')].find(n => n.textContent === text)!;
   return { win, system, button, root: win.document.documentElement, beforeMount };
 }
 describe('Moots base color preferences', () => {
