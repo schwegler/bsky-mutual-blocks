@@ -1,12 +1,18 @@
 {
   "site": "moots",
-  "title": "Moots \u2014 Bluesky block checker",
-  "desktop": 1440,
-  "mobile": 390,
+  "invitationDelay": true,
+  "keyboardActivation": true,
+  "orangeBody": "rgb(255, 229, 187)",
+  "animationPause": true,
   "persistence": true,
-  "off": true,
-  "reset": true,
+  "undo": true,
+  "dismiss": true,
+  "reducedMotion": true,
   "print": true,
-  "emptyAlt": true,
+  "widths": [
+    1440,
+    390,
+    320
+  ],
   "errors": []
 }
