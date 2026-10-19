@@ -28,17 +28,26 @@
     const notice=el('span','seasonal-notice',season.notice||`${season.label} on`);notice.hidden=true;
     const actions=el('div','seasonal-overlay-actions');actions.hidden=true;
     const undo=button('Undo','seasonal-undo');undo.setAttribute('aria-label','Restore original appearance');
-    const pause=button('Pause','seasonal-pause');actions.append(undo,pause);overlay.append(character,dismiss,notice,actions);document.body.append(overlay);
+    const pause=button('Pause','seasonal-pause');actions.append(undo,pause);overlay.append(character,dismiss);document.body.append(overlay);
     const atmosphere=el('div','seasonal-atmosphere');atmosphere.setAttribute('aria-hidden','true');atmosphere.hidden=true;
     for(const name of season.decorations||[])atmosphere.append(el('span',`seasonal-${name}`));document.body.prepend(atmosphere);
     const originals = selector => [...document.querySelectorAll(selector)].map(image=>({image,attributes:Object.fromEntries(['src','srcset','sizes','alt'].map(key=>[key,image.getAttribute(key)])),aspect:image.style.aspectRatio,fit:image.style.objectFit,ratio:(image.naturalWidth&&image.naturalHeight)?`${image.naturalWidth}/${image.naturalHeight}`:(image.getAttribute('width')&&image.getAttribute('height'))?`${image.getAttribute('width')}/${image.getAttribute('height')}`:null}));
-    const portraits=originals('img[src*="/telly_"],img[src*="/duo_left_telly_host_transparent"],img[src*="/andrew-pencil-mascot"]');
+    const portraits=[];
     const marks=originals('img[src*="/schweg-signature-ink.png"]');
     const restore = ({image,attributes,aspect,fit}) => {Object.entries(attributes).forEach(([key,value])=>value===null?image.removeAttribute(key):image.setAttribute(key,value));image.style.aspectRatio=aspect;image.style.objectFit=fit;image.classList.remove('seasonal-light-mark');};
-    const controls=el('section','seasonal-controls');controls.dataset.seasonalControls='';controls.setAttribute('aria-label','Seasonal appearance');
-    const toggle=button(`${season.label} appearance`),motion=button('Pause seasonal animations'),effects=button('Hide atmosphere'),reset=button('Reset appearance');
-    const status=el('span','seasonal-status');status.setAttribute('role','status');status.setAttribute('aria-label','Seasonal appearance status');controls.append(toggle,motion,effects,reset,status);
-    const footer=document.querySelector('footer');if(footer)footer.before(controls);else document.body.append(controls);
+    const controls=el('div','seasonal-controls');controls.dataset.seasonalControls='';
+    const disclosure=button('Appearance','seasonal-appearance-toggle');disclosure.setAttribute('aria-expanded','false');disclosure.setAttribute('aria-controls','seasonal-appearance-panel');
+    const panel=el('div','seasonal-appearance-panel');panel.id='seasonal-appearance-panel';panel.hidden=true;panel.setAttribute('role','group');panel.setAttribute('aria-label','Appearance settings');
+    const toggle=button(`${season.label} appearance`),motion=button('Pause seasonal animations'),effects=button('Hide atmosphere'),reset=button('Reset appearance'),restoreInvite=button('Show Halloween character');
+    const status=el('span','seasonal-status');status.setAttribute('role','status');status.setAttribute('aria-label','Seasonal appearance status');
+    const existingMode=document.querySelector('.tacobout-theme-control');
+    if(existingMode){existingMode.before(controls);panel.append(existingMode);}else{(document.querySelector('header .header-right')||document.querySelector('header')).append(controls);}
+    panel.append(toggle,undo,motion,effects,restoreInvite,reset,notice,status);controls.append(disclosure,panel);
+    const closeMenu=()=>{panel.hidden=true;disclosure.setAttribute('aria-expanded','false');};
+    disclosure.addEventListener('click',()=>{panel.hidden=!panel.hidden;disclosure.setAttribute('aria-expanded',String(!panel.hidden));});
+    listen(document,'click',event=>{if(!controls.contains(event.target))closeMenu();});
+    listen(document,'keydown',event=>{if(event.key==='Escape'&&controls.contains(document.activeElement)){closeMenu();disclosure.focus();event.preventDefault();}});
+    listen(document,'focusin',event=>{if(!controls.contains(event.target))closeMenu();});
     const active=()=>choice===season.theme;
     // Layout reads happen only in response to page events. Keep a safe current position when possible.
     const position=()=>{
@@ -62,8 +71,8 @@
       motion.textContent=reduce.matches?'Motion reduced by device':`${paused?'Resume':'Pause'} seasonal animations`;motion.setAttribute('aria-pressed',String(stopped));motion.disabled=reduce.matches;
     };
     const renderOverlay=()=>{
-      const on=active();overlay.hidden=!(on||(!dismissed&&invited&&choice!=='off'));
-      character.hidden=on&&dismissed;dismiss.hidden=on&&dismissed;actions.hidden=!on;notice.hidden=!on;character.title=on?'Undo':(season.tooltip||'Change seasonal appearance');
+      const on=active();overlay.hidden=dismissed||!(on||(!dismissed&&invited&&choice!=='off'));
+      character.hidden=false;dismiss.hidden=false;undo.hidden=!on;notice.hidden=!on;character.title=on?'Undo':(season.tooltip||'Change seasonal appearance');
       character.setAttribute('aria-label',on?`Turn off ${season.label} mode`:`Turn on ${season.label} mode`);character.setAttribute('aria-pressed',String(on));queue();
     };
     const apply=(source='initial')=>{
@@ -79,10 +88,11 @@
     const choose=(value,source)=>{clearTimeout(timer);choice=value;save(themeKey,value);if(value==='off')invited=false;apply(source);};
     character.addEventListener('click',()=>choose(active()?'off':season.theme,'character'));
     undo.addEventListener('click',()=>{choose('off','undo');focusContent();});
-    const dismissMascot=()=>{dismissed=true;save(promptKey,'dismissed',true);clearTimeout(timer);renderOverlay();if(active())undo.focus({preventScroll:true});else focusContent();};
+    const dismissMascot=()=>{dismissed=true;save(promptKey,'dismissed',true);clearTimeout(timer);renderOverlay();disclosure.focus({preventScroll:true});};
     dismiss.addEventListener('click',dismissMascot);
     const changeMotion=()=>{paused=!paused;save(motionKey,paused?'paused':'auto');apply('motion');};pause.addEventListener('click',changeMotion);motion.addEventListener('click',changeMotion);effects.addEventListener('click',()=>{hiddenEffects=!hiddenEffects;save(effectsKey,hiddenEffects?'hidden':'auto');apply('atmosphere');});
     toggle.addEventListener('click',()=>choose(active()?'off':season.theme,'toggle'));
+    restoreInvite.addEventListener('click',()=>{dismissed=false;invited=true;save(promptKey,null,true);renderOverlay();closeMenu();});
     reset.addEventListener('click',()=>{choice=null;paused=false;hiddenEffects=false;dismissed=false;invited=false;save(themeKey,null);save(motionKey,null);save(effectsKey,null);save(promptKey,null,true);apply('reset');schedule();});
     listen(window,'storage',event=>{if([themeKey,motionKey,effectsKey,null].includes(event.key)){choice=read(themeKey);paused=read(motionKey)==='paused';hiddenEffects=read(effectsKey)==='hidden';apply('storage');schedule();}});
     listen(reduce,'change',()=>{updateMotion();queue();});
@@ -94,7 +104,7 @@
     const expire = () => {
       expired=true;clearTimeout(timer);if(frame)cancelAnimationFrame(frame);events.abort();sizeObserver?.disconnect();
       portraits.forEach(restore);marks.forEach(restore);Object.keys(snapshot).forEach(restoreAttribute);
-      if(overlay.contains(document.activeElement))focusContent();overlay.remove();atmosphere.remove();controls.remove();
+      if(overlay.contains(document.activeElement))focusContent();overlay.remove();atmosphere.remove();if(existingMode)controls.before(existingMode);controls.remove();
       window.dispatchEvent(new CustomEvent('schweg:seasonal-change',{detail:{schemaVersion:2,seasonId:season.id,theme:season.theme,active:false,motion:snapshot['data-season-motion']||'auto',source:'expired'}}));
     };
     const armBoundary = () => { const remaining=boundary-Date.now();if(remaining<=0)expire();else deadlineTimer=setTimeout(armBoundary,Math.min(remaining,2147483647)); };
