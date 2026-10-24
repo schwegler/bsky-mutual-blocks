@@ -39,8 +39,9 @@ describe('authentication and application shell',()=>{
   it('starts signed out, validates handle/DID and reports sign-in errors inline',async()=>{
     await start(false);expect($('h1').textContent).toContain('A clearer view');expect($<HTMLButtonElement>('[data-mode=sent]').disabled).toBe(true);
     enter('#login-handle','bad');submit('.auth-form');expect($('#login-error').textContent).toContain('full Bluesky');expect(document.activeElement).toBe($('#login-handle'));
-    vi.mocked(services.signIn).mockRejectedValueOnce(Error('provider unavailable'));enter('#login-handle','@alex.example.test');submit('.auth-form');await vi.waitFor(()=>expect($('#login-error').textContent).toContain('provider unavailable'));expect($<HTMLInputElement>('#login-handle').disabled).toBe(false);
-    submit('.auth-form');await vi.waitFor(()=>expect(services.signIn).toHaveBeenCalledTimes(2));
+    vi.mocked(services.signIn).mockRejectedValueOnce(Error('provider unavailable'));enter('#login-handle','@alex.example.test');submit('.auth-form');await vi.waitFor(()=>expect($('#login-error').textContent).toBe('Could not start sign-in. provider unavailable'));expect($<HTMLInputElement>('#login-handle').disabled).toBe(false);expect($<HTMLButtonElement>('.primary').disabled).toBe(false);
+    vi.mocked(services.signIn).mockRejectedValueOnce('unknown error');submit('.auth-form');await vi.waitFor(()=>expect($('#login-error').textContent).toBe('Could not start sign-in. The request could not be completed. Please try again.'));expect($<HTMLInputElement>('#login-handle').disabled).toBe(false);expect($<HTMLButtonElement>('.primary').disabled).toBe(false);
+    submit('.auth-form');await vi.waitFor(()=>expect(services.signIn).toHaveBeenCalledTimes(3));
     click('#login-privacy');expect($<HTMLDialogElement>('#modal').open).toBe(true);
   });
   it('locks duplicate sign-in submissions while redirect preparation is pending',async()=>{
