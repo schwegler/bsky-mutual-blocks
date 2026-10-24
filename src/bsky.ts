@@ -112,6 +112,26 @@ export interface BlockReadOptions {
   onSource?: (source: 'cache' | 'network', fetchedAt: number) => void;
 }
 
+async function resolvePdsUrlFromDocUrl(
+  docUrl: string,
+  signal: AbortSignal
+): Promise<{ pdsUrl?: string; errorReason?: BlockFetchErrorReason }> {
+  try {
+    const res = await fetch(docUrl, { signal });
+    if (res.ok) {
+      const doc = await res.json();
+      const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
+      return { pdsUrl: pdsService?.serviceEndpoint };
+    } else {
+      return { errorReason: 'pds_offline' };
+    }
+  } catch (err: any) {
+    return {
+      errorReason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'pds_offline'
+    };
+  }
+}
+
 export async function fetchAllUserBlocks(
   repoDid: string,
   maxRetries = 3,
@@ -132,56 +152,25 @@ export async function fetchAllUserBlocks(
   const requestSignal = () => options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000);
 
   try {
-    let pdsUrl: string | undefined;
+    let docUrl: string;
 
     if (repoDid.startsWith('did:plc:')) {
-      try {
-        const res = await fetch(`https://plc.directory/${repoDid}`, {
-          signal: requestSignal()
-        });
-        if (res.ok) {
-          const doc = await res.json();
-          const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
-          if (pdsService?.serviceEndpoint) {
-            pdsUrl = pdsService.serviceEndpoint;
-          }
-        } else {
-          return { blockedDids, isComplete: false, errorReason: 'pds_offline' };
-        }
-      } catch (err: any) {
-        return {
-          blockedDids,
-          isComplete: false,
-          errorReason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'pds_offline'
-        };
-      }
+      docUrl = `https://plc.directory/${repoDid}`;
     } else if (repoDid.startsWith('did:web:')) {
       const parts = repoDid.slice('did:web:'.length).split(':').map(decodeURIComponent);
       const domain = parts.shift()!;
       const didPath = parts.length ? '/' + parts.map(encodeURIComponent).join('/') + '/did.json' : '/.well-known/did.json';
-      try {
-        const res = await fetch(`https://${domain}${didPath}`, {
-          signal: requestSignal()
-        });
-        if (res.ok) {
-          const doc = await res.json();
-          const pdsService = doc.service?.find((s: any) => s.id === '#atproto_pds');
-          if (pdsService?.serviceEndpoint) {
-            pdsUrl = pdsService.serviceEndpoint;
-          }
-        } else {
-          return { blockedDids, isComplete: false, errorReason: 'pds_offline' };
-        }
-      } catch (err: any) {
-        return {
-          blockedDids,
-          isComplete: false,
-          errorReason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'pds_offline'
-        };
-      }
+      docUrl = `https://${domain}${didPath}`;
     } else {
       return { blockedDids, isComplete: false, errorReason: 'invalid_pds' };
     }
+
+    const { pdsUrl: rawPdsUrl, errorReason: docError } = await resolvePdsUrlFromDocUrl(docUrl, requestSignal());
+    if (docError) {
+      return { blockedDids, isComplete: false, errorReason: docError };
+    }
+
+    let pdsUrl = rawPdsUrl;
 
     if (!pdsUrl || !isSecurePds(pdsUrl)) {
       return { blockedDids, isComplete: false, errorReason: 'invalid_pds' };
