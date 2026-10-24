@@ -288,7 +288,7 @@ export async function fetchAllUserBlocks(
   }
 }
 
-// 1. Search actors for input autocomplete
+/** Search actors for input autocomplete. */
 export async function searchActorsTypeahead(
   agent: Agent,
   query: string
