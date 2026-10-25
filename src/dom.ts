@@ -56,3 +56,21 @@ export function profileLink(profile: MutualProfile): HTMLAnchorElement {
 export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : 'The request could not be completed. Please try again.';
 }
+export function renderScope(): HTMLElement {
+  const container = element('div');
+  const foot = element('div', 'scope-foot');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '12');
+  circle.setAttribute('r', '9');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M12 10v7m0-11v2');
+  svg.append(circle, path);
+  const span = element('span', '', 'Public direct block records only. List-based blocks and mutes are not included. Records do not explain why a block exists.');
+  foot.append(svg, span);
+  container.append(foot);
+  return container;
+}
