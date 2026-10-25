@@ -57,6 +57,15 @@ describe('bounded browser caches',()=>{
     sessionStorage.setItem('moots_circle_a','x');sessionStorage.setItem('bsky_mutuals_cache_a','x');sessionStorage.setItem('oauth','keep');clearCircleCache();expect(sessionStorage.length).toBe(1);
     mockIdbStore.set('blocks_a',{});mockIdbStore.set('oauth',{});mockIdbStore.set(5,{});await clearBlockCache();expect(mockIdbStore.has('blocks_a')).toBe(false);expect(mockIdbStore.size).toBe(2);
   });
+  it('restores cached keys index from storage across page reload simulation',async()=>{
+    sessionStorage.setItem('bsky_circle_cache_index',JSON.stringify(['moots_circle_reload']));
+    sessionStorage.setItem('moots_circle_reload',JSON.stringify({mutuals:[a],fetchedAt:Date.now()}));
+    expect(readCircle('reload')).toEqual({mutuals:[a],fetchedAt:expect.any(Number)});
+    clearCircleCache();
+    expect(sessionStorage.getItem('moots_circle_reload')).toBeNull();
+    sessionStorage.setItem('bsky_circle_cache_index','"corrupt"');
+    expect(readCircle('corrupt')).toBeNull();
+  });
   it('surfaces storage failure so the UI cannot claim clearing succeeded',async()=>{
     vi.mocked(keys).mockRejectedValueOnce(Error('blocked'));await expect(clearBlockCache()).rejects.toThrow('blocked');
     mockIdbStore.set('blocks_a',{});vi.mocked(del).mockRejectedValueOnce(Error('write'));await expect(clearBlockCache()).rejects.toThrow('write');
