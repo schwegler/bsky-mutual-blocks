@@ -53,6 +53,14 @@ describe('bounded browser caches',()=>{
     vi.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw Error('blocked')});expect(readCircle(a.did)).toBeNull();
     vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw Error('blocked')});expect(()=>saveCircle(a.did,{mutuals:[],fetchedAt:1})).not.toThrow();
   });
+  it('handles sessionStorage.setItem failure in saveCircle gracefully when quota is exceeded or storage throws', () => {
+    const setItemSpy = vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+    expect(() => saveCircle(a.did, { mutuals: [a], fetchedAt: Date.now() })).not.toThrow();
+    expect(setItemSpy).toHaveBeenCalled();
+    setItemSpy.mockRestore();
+  });
   it('clears only owned scan keys, preserving unrelated and OAuth data',async()=>{
     sessionStorage.setItem('moots_circle_a','x');sessionStorage.setItem('bsky_mutuals_cache_a','x');sessionStorage.setItem('oauth','keep');clearCircleCache();expect(sessionStorage.length).toBe(1);
     mockIdbStore.set('blocks_a',{});mockIdbStore.set('oauth',{});mockIdbStore.set(5,{});await clearBlockCache();expect(mockIdbStore.has('blocks_a')).toBe(false);expect(mockIdbStore.size).toBe(2);
