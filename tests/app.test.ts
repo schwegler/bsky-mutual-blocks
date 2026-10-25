@@ -154,6 +154,21 @@ describe('keyboard autocomplete and stale responses',()=>{
   it('ignores stale suggestions after editing, blur and navigation',async()=>{
     await start();const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);enter('#target','old');await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalled());enter('#target','new');pending.resolve([river] as never);await Promise.resolve();expect($<HTMLElement>('#suggestions').hidden).toBe(true);$('#target').dispatchEvent(new Event('blur'));click('[data-mode=sent]');expect($('#suggestions')).toBeNull();
   });
+  it('handles searchActorsTypeahead rejection for active queries and suppresses errors for stale queries',async()=>{
+    await start();
+    vi.mocked(bsky.searchActorsTypeahead).mockRejectedValueOnce(Error('network offline'));
+    enter('#target','offline');
+    await vi.waitFor(()=>expect($('#target-error').textContent).toBe('Suggestions unavailable. You can still enter a full handle or DID.'));
+
+    const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();
+    vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);
+    enter('#target','stale');
+    await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalledWith(expect.anything(),'stale'));
+    enter('#target','next');
+    pending.reject(Error('stale rejection'));
+    await Promise.resolve();
+    expect($('#target-error').textContent).toBe('');
+  });
 });
 describe('asynchronous and focus regression boundaries',()=>{
   it('ignores queued progress and completion after cancellation',async()=>{
