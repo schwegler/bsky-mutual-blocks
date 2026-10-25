@@ -145,6 +145,21 @@ afterEach(() => {
       expect(maxActiveWorkers).toBeLessThanOrEqual(2);
       expect(results).toEqual([10, 20, 30, 40, 50]);
     });
+
+    it('propagates rejection when map function throws or rejects asynchronously', async () => {
+      const items = [1, 2, 3, 4, 5];
+      const errorMsg = 'Worker processing failed';
+
+      await expect(
+        mapConcurrent(items, 2, async (item) => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (item === 3) {
+            throw new Error(errorMsg);
+          }
+          return item * 10;
+        })
+      ).rejects.toThrow(errorMsg);
+    });
   });
 
   describe('searchActorsTypeahead', () => {
