@@ -20,6 +20,12 @@ describe('directed circle model',()=>{
     expect(resultRows(fixture('received')).map(r=>[r.account.did,r.related.map(m=>m.did)])).toEqual([[b.did,[a.did,c.did]],[c.did,[a.did,b.did]]]);
   });
   it('does not invent zero-count rows',()=>{const s=fixture('sent');s.observations=[];expect(resultRows(s)).toEqual([])});
+  it('reuses cached mutuals map across repeated resultRows calls on the same snapshot',()=>{
+    const s = fixture('sent');
+    const first = resultRows(s);
+    const second = resultRows(s);
+    expect(first).toEqual(second);
+  });
   it('keeps cached source timestamps and processes fresh observations',async()=>{
     const fetch=vi.spyOn(bsky,'fetchAllUserBlocks').mockImplementation(async(did,_retry,options)=>{options?.onSource?.(did===a.did?'cache':'network',100);return {blockedDids:[b.did],isComplete:true}});
     const progress=vi.fn();const s=await scanCircle({} as Agent,{mode:'lookup',target:b,mutuals:[a,b],circleFetchedAt:1},{signal:new AbortController().signal,forceRefresh:false,onProgress:progress});
@@ -49,13 +55,42 @@ describe('bounded browser caches',()=>{
     for(const value of [null,{}, {mutuals:[],fetchedAt:now-CIRCLE_TTL},{mutuals:[],fetchedAt:now+1000},{mutuals:[null],fetchedAt:now},{mutuals:[{did:2,handle:3}],fetchedAt:now},{mutuals:'bad',fetchedAt:now}]){sessionStorage.setItem('moots_circle_'+a.did,JSON.stringify(value));expect(readCircle(a.did)).toBeNull()}
     sessionStorage.setItem('moots_circle_'+a.did,'{bad');expect(readCircle(a.did)).toBeNull();expect(readCircle('missing')).toBeNull();
   });
+  it('handles session storage null/undefined and invalid raw strings in readCircle',()=>{
+    sessionStorage.setItem('moots_circle_'+a.did,'null');
+    expect(readCircle(a.did)).toBeNull();
+    sessionStorage.setItem('moots_circle_'+a.did,'undefined');
+    expect(readCircle(a.did)).toBeNull();
+    sessionStorage.setItem('moots_circle_'+a.did,'');
+    expect(readCircle(a.did)).toBeNull();
+    for (const raw of ['123', 'true', '"a_string"', '[1,2,3]']) {
+      sessionStorage.setItem('moots_circle_'+a.did, raw);
+      expect(readCircle(a.did)).toBeNull();
+    }
+  });
   it('continues when browser storage is blocked',()=>{
     vi.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw Error('blocked')});expect(readCircle(a.did)).toBeNull();
     vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw Error('blocked')});expect(()=>saveCircle(a.did,{mutuals:[],fetchedAt:1})).not.toThrow();
   });
+  it('handles sessionStorage.setItem failure in saveCircle gracefully when quota is exceeded or storage throws', () => {
+    const setItemSpy = vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+    expect(() => saveCircle(a.did, { mutuals: [a], fetchedAt: Date.now() })).not.toThrow();
+    expect(setItemSpy).toHaveBeenCalled();
+    setItemSpy.mockRestore();
+  });
   it('clears only owned scan keys, preserving unrelated and OAuth data',async()=>{
     sessionStorage.setItem('moots_circle_a','x');sessionStorage.setItem('bsky_mutuals_cache_a','x');sessionStorage.setItem('oauth','keep');clearCircleCache();expect(sessionStorage.length).toBe(1);
     mockIdbStore.set('blocks_a',{});mockIdbStore.set('oauth',{});mockIdbStore.set(5,{});await clearBlockCache();expect(mockIdbStore.has('blocks_a')).toBe(false);expect(mockIdbStore.size).toBe(2);
+  });
+  it('restores cached keys index from storage across page reload simulation',async()=>{
+    sessionStorage.setItem('bsky_circle_cache_index',JSON.stringify(['moots_circle_reload']));
+    sessionStorage.setItem('moots_circle_reload',JSON.stringify({mutuals:[a],fetchedAt:Date.now()}));
+    expect(readCircle('reload')).toEqual({mutuals:[a],fetchedAt:expect.any(Number)});
+    clearCircleCache();
+    expect(sessionStorage.getItem('moots_circle_reload')).toBeNull();
+    sessionStorage.setItem('bsky_circle_cache_index','"corrupt"');
+    expect(readCircle('corrupt')).toBeNull();
   });
   it('surfaces storage failure so the UI cannot claim clearing succeeded',async()=>{
     vi.mocked(keys).mockRejectedValueOnce(Error('blocked'));await expect(clearBlockCache()).rejects.toThrow('blocked');

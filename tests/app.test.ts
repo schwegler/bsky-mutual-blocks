@@ -47,12 +47,37 @@ describe('authentication and application shell',()=>{
   it('locks duplicate sign-in submissions while redirect preparation is pending',async()=>{
     await start(false);const pending=defer<void>();vi.mocked(services.signIn).mockReturnValue(pending.promise);enter('#login-handle','alex.example.test');submit('.auth-form');submit('.auth-form');expect(services.signIn).toHaveBeenCalledTimes(1);pending.resolve();
   });
-  it('recovers a failed restore and a mismatched session without pretending to be connected',async()=>{
-    vi.mocked(services.initOAuth).mockRejectedValueOnce(Error('restore'));await start();expect($('#login-error').textContent).toContain('could not be restored');
-    vi.mocked(services.initOAuth).mockResolvedValueOnce({session:null,agent});await start();expect($('#login-handle')).not.toBeNull();
+  it('handles initOAuth failure during startup by resetting agent and displaying restoration error message',async()=>{
+    vi.mocked(services.initOAuth).mockRejectedValueOnce(new Error('initOAuth network failure'));
+    controller = createApp(services);
+    await controller.start();
+
+    expect($('#login-error').textContent).toBe('Your session could not be restored. Sign in to try again.');
+    expect(document.body.classList.contains('signed-out')).toBe(true);
+    expect($<HTMLButtonElement>('[data-mode=sent]').disabled).toBe(true);
+    expect($('#identity').children.length).toBe(0);
+  });
+  it('recovers a mismatched session without pretending to be connected',async()=>{
+    vi.mocked(services.initOAuth).mockResolvedValueOnce({session:null,agent});
+    await start();
+    expect($('#login-handle')).not.toBeNull();
+  });
+  it('falls back to DID profile when agent.getProfile fails during initialization',async()=>{
+    vi.mocked(agent.getProfile).mockRejectedValueOnce(Error('getProfile network failure'));
+    await start();
+    expect($('#identity').textContent).toContain('did:plc:alex');
+    expect($('#identity').textContent).toContain('@did:plc:alex');
+    expect($('#content').textContent).toContain('A relationship is not a reason.');
   });
   it('uses DID fallback, safely renders the identity and signs out without deleting unrelated data',async()=>{
     vi.mocked(agent.getProfile).mockRejectedValueOnce(Error('profile'));await start();expect($('#identity').textContent).toContain('did:plc:alex');sessionStorage.setItem('oauth','keep');sessionStorage.setItem('moots_circle_old','old');click('#identity button');await vi.waitFor(()=>expect($('#login-handle')).not.toBeNull());expect(sessionStorage.getItem('oauth')).toBe('keep');expect(sessionStorage.getItem('moots_circle_old')).toBeNull();
+  });
+  it('completes sign-out even if clearCircleCache throws an error',async()=>{
+    await start();
+    vi.spyOn(scanModule,'clearCircleCache').mockImplementationOnce(()=>{throw new Error('sessionStorage quota exceeded')});
+    click('#identity button');
+    await vi.waitFor(()=>expect($('#login-handle')).not.toBeNull());
+    expect($('#announcement').textContent).toContain('Signed out');
   });
   it('keeps the session visible on sign-out failure and allows retry',async()=>{
     await start();vi.mocked(services.signOut).mockRejectedValueOnce(Error('offline'));click('#identity button');await vi.waitFor(()=>expect($('.error-notice').textContent).toContain('Sign-out failed'));expect($<HTMLButtonElement>('#identity button').disabled).toBe(false);
@@ -107,6 +132,26 @@ describe('guarded scan lifecycle',()=>{
   });
 });
 describe('results, ranks and safe disclosure content',()=>{
+  it('reuses computed rows while filtering and restores count order after name sorting',async()=>{
+    const compute=vi.spyOn(scanModule,'resultRows');
+    await start();click('[data-mode=sent]');
+    const initial=fixture('sent');initial.observations[0].moot={...jun,displayName:'Z Jun'};
+    vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(initial);submit('.tool-form');await flush();
+    expect(compute).toHaveBeenCalledTimes(1);
+    const names=()=>Array.from(document.querySelectorAll('.record > summary .person b'),node=>node.textContent);
+    expect(names()).toEqual(['Z Jun','Sol Rivera']);
+    const select=$<HTMLSelectElement>('.toolbar select');
+    select.value='name';select.dispatchEvent(new Event('change'));
+    expect(names()).toEqual(['Sol Rivera','Z Jun']);
+    enter('.toolbar input','SOL');expect(names()).toEqual(['Sol Rivera']);
+    enter('.toolbar input','');select.value='count';select.dispatchEvent(new Event('change'));
+    expect(names()).toEqual(['Z Jun','Sol Rivera']);expect(compute).toHaveBeenCalledTimes(1);
+    const updated=fixture('sent');updated.observations[0].blockedDids=[];
+    vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(updated);
+    click('.scan-actions .secondary');await flush();
+    expect(names()).toEqual(['Sol Rivera']);expect(compute).toHaveBeenCalledTimes(2);
+  });
+
   it('renders directional rows, safe external links, name sorting and local filter recovery',async()=>{
     await start();await lookup();const row=$<HTMLDetailsElement>('.record');row.open=true;expect(row.textContent).toContain('→ did:plc:river');expect(row.querySelector('a')?.href).toContain('did%3Aplc%3Ajun');
     enter('.toolbar input','no match');expect($('.records').textContent).toContain('No accounts match');click('.records button');expect(document.activeElement).toBe($('.toolbar input'));expect(document.querySelectorAll('.record')).toHaveLength(2);
@@ -153,6 +198,21 @@ describe('keyboard autocomplete and stale responses',()=>{
   });
   it('ignores stale suggestions after editing, blur and navigation',async()=>{
     await start();const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);enter('#target','old');await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalled());enter('#target','new');pending.resolve([river] as never);await Promise.resolve();expect($<HTMLElement>('#suggestions').hidden).toBe(true);$('#target').dispatchEvent(new Event('blur'));click('[data-mode=sent]');expect($('#suggestions')).toBeNull();
+  });
+  it('handles searchActorsTypeahead rejection for active queries and suppresses errors for stale queries',async()=>{
+    await start();
+    vi.mocked(bsky.searchActorsTypeahead).mockRejectedValueOnce(Error('network offline'));
+    enter('#target','offline');
+    await vi.waitFor(()=>expect($('#target-error').textContent).toBe('Suggestions unavailable. You can still enter a full handle or DID.'));
+
+    const pending=defer<Awaited<ReturnType<typeof bsky.searchActorsTypeahead>>>();
+    vi.mocked(bsky.searchActorsTypeahead).mockReturnValueOnce(pending.promise);
+    enter('#target','stale');
+    await vi.waitFor(()=>expect(bsky.searchActorsTypeahead).toHaveBeenCalledWith(expect.anything(),'stale'));
+    enter('#target','next');
+    pending.reject(Error('stale rejection'));
+    await Promise.resolve();
+    expect($('#target-error').textContent).toBe('');
   });
 });
 describe('asynchronous and focus regression boundaries',()=>{
