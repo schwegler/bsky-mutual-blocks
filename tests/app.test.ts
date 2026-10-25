@@ -51,6 +51,13 @@ describe('authentication and application shell',()=>{
     vi.mocked(services.initOAuth).mockRejectedValueOnce(Error('restore'));await start();expect($('#login-error').textContent).toContain('could not be restored');
     vi.mocked(services.initOAuth).mockResolvedValueOnce({session:null,agent});await start();expect($('#login-handle')).not.toBeNull();
   });
+  it('falls back to DID profile when agent.getProfile fails during initialization',async()=>{
+    vi.mocked(agent.getProfile).mockRejectedValueOnce(Error('getProfile network failure'));
+    await start();
+    expect($('#identity').textContent).toContain('did:plc:alex');
+    expect($('#identity').textContent).toContain('@did:plc:alex');
+    expect($('#content').textContent).toContain('A relationship is not a reason.');
+  });
   it('uses DID fallback, safely renders the identity and signs out without deleting unrelated data',async()=>{
     vi.mocked(agent.getProfile).mockRejectedValueOnce(Error('profile'));await start();expect($('#identity').textContent).toContain('did:plc:alex');sessionStorage.setItem('oauth','keep');sessionStorage.setItem('moots_circle_old','old');click('#identity button');await vi.waitFor(()=>expect($('#login-handle')).not.toBeNull());expect(sessionStorage.getItem('oauth')).toBe('keep');expect(sessionStorage.getItem('moots_circle_old')).toBeNull();
   });
