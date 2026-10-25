@@ -54,6 +54,13 @@ describe('authentication and application shell',()=>{
   it('uses DID fallback, safely renders the identity and signs out without deleting unrelated data',async()=>{
     vi.mocked(agent.getProfile).mockRejectedValueOnce(Error('profile'));await start();expect($('#identity').textContent).toContain('did:plc:alex');sessionStorage.setItem('oauth','keep');sessionStorage.setItem('moots_circle_old','old');click('#identity button');await vi.waitFor(()=>expect($('#login-handle')).not.toBeNull());expect(sessionStorage.getItem('oauth')).toBe('keep');expect(sessionStorage.getItem('moots_circle_old')).toBeNull();
   });
+  it('completes sign-out even if clearCircleCache throws an error',async()=>{
+    await start();
+    vi.spyOn(scanModule,'clearCircleCache').mockImplementationOnce(()=>{throw new Error('sessionStorage quota exceeded')});
+    click('#identity button');
+    await vi.waitFor(()=>expect($('#login-handle')).not.toBeNull());
+    expect($('#announcement').textContent).toContain('Signed out');
+  });
   it('keeps the session visible on sign-out failure and allows retry',async()=>{
     await start();vi.mocked(services.signOut).mockRejectedValueOnce(Error('offline'));click('#identity button');await vi.waitFor(()=>expect($('.error-notice').textContent).toContain('Sign-out failed'));expect($<HTMLButtonElement>('#identity button').disabled).toBe(false);
   });
