@@ -47,9 +47,20 @@ describe('authentication and application shell',()=>{
   it('locks duplicate sign-in submissions while redirect preparation is pending',async()=>{
     await start(false);const pending=defer<void>();vi.mocked(services.signIn).mockReturnValue(pending.promise);enter('#login-handle','alex.example.test');submit('.auth-form');submit('.auth-form');expect(services.signIn).toHaveBeenCalledTimes(1);pending.resolve();
   });
-  it('recovers a failed restore and a mismatched session without pretending to be connected',async()=>{
-    vi.mocked(services.initOAuth).mockRejectedValueOnce(Error('restore'));await start();expect($('#login-error').textContent).toContain('could not be restored');
-    vi.mocked(services.initOAuth).mockResolvedValueOnce({session:null,agent});await start();expect($('#login-handle')).not.toBeNull();
+  it('handles initOAuth failure during startup by resetting agent and displaying restoration error message',async()=>{
+    vi.mocked(services.initOAuth).mockRejectedValueOnce(new Error('initOAuth network failure'));
+    controller = createApp(services);
+    await controller.start();
+
+    expect($('#login-error').textContent).toBe('Your session could not be restored. Sign in to try again.');
+    expect(document.body.classList.contains('signed-out')).toBe(true);
+    expect($<HTMLButtonElement>('[data-mode=sent]').disabled).toBe(true);
+    expect($('#identity').children.length).toBe(0);
+  });
+  it('recovers a mismatched session without pretending to be connected',async()=>{
+    vi.mocked(services.initOAuth).mockResolvedValueOnce({session:null,agent});
+    await start();
+    expect($('#login-handle')).not.toBeNull();
   });
   it('uses DID fallback, safely renders the identity and signs out without deleting unrelated data',async()=>{
     vi.mocked(agent.getProfile).mockRejectedValueOnce(Error('profile'));await start();expect($('#identity').textContent).toContain('did:plc:alex');sessionStorage.setItem('oauth','keep');sessionStorage.setItem('moots_circle_old','old');click('#identity button');await vi.waitFor(()=>expect($('#login-handle')).not.toBeNull());expect(sessionStorage.getItem('oauth')).toBe('keep');expect(sessionStorage.getItem('moots_circle_old')).toBeNull();
