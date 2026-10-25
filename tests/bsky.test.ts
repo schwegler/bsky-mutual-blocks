@@ -120,6 +120,19 @@ afterEach(() => {
       expect(resolveHandleMock).toHaveBeenCalledWith({ handle: 'user.bsky.social' });
       expect(result).toEqual({ did: 'did:plc:abc' });
     });
+
+    it('bubbles the error when both getProfile and resolveHandle fail for handle input', async () => {
+      const getProfileMock = vi.fn().mockRejectedValue(new Error('Profile fetch failed'));
+      const resolveHandleMock = vi.fn().mockRejectedValue(new Error('Handle resolution failed'));
+      const mockAgent = {
+        getProfile: getProfileMock,
+        resolveHandle: resolveHandleMock
+      } as unknown as Agent;
+
+      await expect(resolveActor(mockAgent, 'user.bsky.social')).rejects.toThrow('Handle resolution failed');
+      expect(getProfileMock).toHaveBeenCalledWith({ actor: 'user.bsky.social' });
+      expect(resolveHandleMock).toHaveBeenCalledWith({ handle: 'user.bsky.social' });
+    });
   });
   describe('mapConcurrent', () => {
     it('returns empty array when items array is empty', async () => {
@@ -144,6 +157,21 @@ afterEach(() => {
 
       expect(maxActiveWorkers).toBeLessThanOrEqual(2);
       expect(results).toEqual([10, 20, 30, 40, 50]);
+    });
+
+    it('propagates rejection when map function throws or rejects asynchronously', async () => {
+      const items = [1, 2, 3, 4, 5];
+      const errorMsg = 'Worker processing failed';
+
+      await expect(
+        mapConcurrent(items, 2, async (item) => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (item === 3) {
+            throw new Error(errorMsg);
+          }
+          return item * 10;
+        })
+      ).rejects.toThrow(errorMsg);
     });
   });
 

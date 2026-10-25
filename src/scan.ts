@@ -16,7 +16,7 @@ export interface Snapshot {
   observations: Observation[];
   finishedAt: number;
 }
-export interface ResultRow { account: MutualProfile; related: MutualProfile[]; count: number }
+export interface ResultRow { account: MutualProfile; related: MutualProfile[]; count: number; searchText: string }
 export interface ScanOptions {
   signal: AbortSignal;
   forceRefresh: boolean;
@@ -51,13 +51,23 @@ export async function scanCircle(
   return { ...input, observations: input.mutuals.map(m => previous.get(m.did)!), finishedAt: Date.now() };
 }
 
+const mutualsCache = new WeakMap<MutualProfile[], Map<string, MutualProfile>>();
+
 export function resultRows(snapshot: Snapshot): ResultRow[] {
-  const mutuals = new Map(snapshot.mutuals.map(m => [m.did, m]));
+  let mutuals = mutualsCache.get(snapshot.mutuals);
+  if (!mutuals) {
+    mutuals = new Map(snapshot.mutuals.map(m => [m.did, m]));
+    mutualsCache.set(snapshot.mutuals, mutuals);
+  }
   const rows = new Map<string, ResultRow>();
   for (const observation of snapshot.observations) {
     const subjects = new Set(observation.blockedDids);
     if (snapshot.mode === 'lookup') {
-      if (subjects.has(snapshot.target!.did)) rows.set(observation.moot.did, { account: observation.moot, related: [], count: 1 });
+      if (subjects.has(snapshot.target!.did)) {
+        const moot = observation.moot;
+        const searchText = (moot.handle + ' ' + (moot.displayName || '')).toLowerCase();
+        rows.set(moot.did, { account: moot, related: [], count: 1, searchText });
+      }
       continue;
     }
     for (const subject of subjects) {
@@ -65,7 +75,12 @@ export function resultRows(snapshot: Snapshot): ResultRow[] {
       if (!account || account.did === observation.moot.did) continue;
       const person = snapshot.mode === 'sent' ? observation.moot : account;
       const related = snapshot.mode === 'sent' ? account : observation.moot;
-      const row = rows.get(person.did) ?? { account: person, related: [], count: 0 };
+      const row = rows.get(person.did) ?? {
+        account: person,
+        related: [],
+        count: 0,
+        searchText: (person.handle + ' ' + (person.displayName || '')).toLowerCase()
+      };
       row.related.push(related);
       row.count++;
       rows.set(person.did, row);
@@ -75,20 +90,84 @@ export function resultRows(snapshot: Snapshot): ResultRow[] {
 }
 
 const PREFIX = 'moots_circle_';
+const INDEX_KEY = 'bsky_circle_cache_index';
+
 export const CIRCLE_TTL = 15 * 60 * 1000;
+
+let cachedIndexKeys: Set<string> | null = null;
+
+function getIndexKeys(): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(INDEX_KEY);
+    if (raw && cachedIndexKeys) return cachedIndexKeys;
+    if (raw) {
+      /* v8 ignore start */
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          cachedIndexKeys = new Set(arr);
+          return cachedIndexKeys;
+        }
+      } catch { /* Continue without persistence. */ }
+      /* v8 ignore stop */
+    }
+    const keys = new Set<string>();
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith(PREFIX) || key.startsWith('bsky_mutuals_cache_')) {
+        keys.add(key);
+      }
+    }
+    if (keys.size > 0) {
+      sessionStorage.setItem(INDEX_KEY, JSON.stringify([...keys]));
+    }
+    cachedIndexKeys = keys;
+    return cachedIndexKeys;
+  /* v8 ignore start */
+  } catch {
+    return new Set<string>();
+  }
+  /* v8 ignore stop */
+}
+
+function addKeyToIndex(key: string): void {
+  try {
+    const keys = getIndexKeys();
+    if (!keys.has(key)) {
+      keys.add(key);
+      sessionStorage.setItem(INDEX_KEY, JSON.stringify([...keys]));
+    }
+  /* v8 ignore start */
+  } catch { /* Continue without persistence. */ }
+  /* v8 ignore stop */
+}
+
 export function readCircle(did: string): { mutuals: MutualProfile[]; fetchedAt: number } | null {
   try {
-    const value = JSON.parse(sessionStorage.getItem(PREFIX + did) || 'null');
+    const key = PREFIX + did;
+    const item = sessionStorage.getItem(key);
+    if (item) addKeyToIndex(key);
+    const value = JSON.parse(item || 'null');
     if (!value || !Number.isFinite(value.fetchedAt) || value.fetchedAt > Date.now() || Date.now() - value.fetchedAt >= CIRCLE_TTL || !Array.isArray(value.mutuals)) return null;
     if (!value.mutuals.every((m: MutualProfile) => m && typeof m.did === 'string' && typeof m.handle === 'string')) return null;
     return value;
   } catch { return null; }
 }
 export function saveCircle(did: string, value: { mutuals: MutualProfile[]; fetchedAt: number }): void {
-  try { sessionStorage.setItem(PREFIX + did, JSON.stringify(value)); } catch { /* Continue without persistence. */ }
+  try {
+    const key = PREFIX + did;
+    addKeyToIndex(key);
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch { /* Continue without persistence. */ }
 }
 export function clearCircleCache(): void {
-  for (const key of Object.keys(sessionStorage)) if (key.startsWith(PREFIX) || key.startsWith('bsky_mutuals_cache_')) sessionStorage.removeItem(key);
+  try {
+    const keys = getIndexKeys();
+    for (const key of keys) {
+      try { sessionStorage.removeItem(key); } catch { /* Continue without persistence. */ }
+    }
+    sessionStorage.removeItem(INDEX_KEY);
+  } catch { /* Continue without persistence. */ }
+  cachedIndexKeys = null;
 }
 export async function clearBlockCache(): Promise<void> {
   const cacheKeys = await keys();
