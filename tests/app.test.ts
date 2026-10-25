@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Agent } from '@atproto/api';
 import type { Snapshot } from '../src/scan';
-import { createApp, Services, validActor } from '../src/app';
+import { createApp, createScope, Services, validActor } from '../src/app';
 import * as scanModule from '../src/scan';
 import * as bsky from '../src/bsky';
 import { mockIdbStore } from './setup';
@@ -34,6 +34,15 @@ beforeEach(()=>{
 afterEach(()=>controller?.cancel());
 async function start(signed=true){if(!signed)vi.mocked(services.initOAuth).mockResolvedValue({session:null,agent:null});controller=createApp(services);await controller.start()}
 async function lookup(){enter('#target','river.example.test');submit('.tool-form');await flush()}
+
+describe('createScope and DOM security helpers',()=>{
+  it('creates the scope DOM element structure safely without innerHTML concatenation', () => {
+    const scopeEl = createScope();
+    expect(scopeEl.className).toBe('scope-foot');
+    expect(scopeEl.querySelector('svg')).not.toBeNull();
+    expect(scopeEl.querySelector('span')?.textContent).toContain('Public direct block records only');
+  });
+});
 
 describe('authentication and application shell',()=>{
   it('starts signed out, validates handle/DID and reports sign-in errors inline',async()=>{
