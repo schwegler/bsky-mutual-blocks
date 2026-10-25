@@ -13,7 +13,25 @@ const modes: Record<Mode, { title: string; intro: string; button: string }> = {
   sent: { title: 'Blocks sent, within your circle.', intro: 'Rank accounts in the signed-in account’s mutual circle by how many other accounts in that same circle their direct block records name. Direction: row account → other mutuals.', button: 'Scan blocks sent' },
   received: { title: 'Blocks received, within your circle.', intro: 'Rank accounts in the signed-in account’s mutual circle by how many other accounts in that same circle have direct block records naming them. Direction: other mutuals → row account.', button: 'Scan blocks received' }
 };
-const scope = '<div class="scope-foot"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v7m0-11v2"/></svg><span>Public direct block records only. List-based blocks and mutes are not included. Records do not explain why a block exists.</span></div>';
+function createScopeElement(): HTMLElement {
+  const node = element('div', 'scope-foot');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('viewBox', '0 0 24 24');
+
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '12');
+  circle.setAttribute('r', '9');
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M12 10v7m0-11v2');
+
+  svg.append(circle, path);
+  const span = element('span', '', 'Public direct block records only. List-based blocks and mutes are not included. Records do not explain why a block exists.');
+  node.append(svg, span);
+  return node;
+}
 
 /** One controller owns the active request, frozen target and result snapshot. No remote values enter HTML templates. */
 export function createApp(services: Services) {
@@ -62,7 +80,8 @@ export function createApp(services: Services) {
     invalidateSuggestions();
     document.body.classList.add('signed-out');
     identity.replaceChildren();
-    main.innerHTML = '<div class="welcome"><img class="hitch-mascot" src="/assets/brand/hitch.png" alt="" width="112" height="144" decoding="async"><h1>A clearer view<br>of your circle.</h1><p class="intro">Explore public direct block records among your Bluesky mutuals, with the scope and limits in plain sight.</p><div class="welcome-grid"><div><h2>Three ways to look.</h2><p>Check an account, or explore blocks sent and received within your mutual circle.</p><div class="flow-key"><b>01</b> Connect with Bluesky OAuth</div><div class="flow-key"><b>02</b> Find accounts you follow who follow you back</div><div class="flow-key"><b>03</b> Check direct records, with coverage notes</div></div><form class="auth-form" novalidate><h2>Start with your account.</h2><p>You’ll continue to your account provider to sign in. Your password belongs there.</p><label for="login-handle">Your Bluesky handle or DID</label><input id="login-handle" placeholder="you.bsky.social" autocomplete="username" spellcheck="false" aria-describedby="login-note login-error" required><p class="error-text" id="login-error" role="alert"></p><button class="primary" type="submit">Continue with Bluesky <span aria-hidden="true">→</span></button><p class="form-note" id="login-note">Your browser contacts Bluesky and account data servers. Public block lists may be stored in this browser and reused for up to 24 hours.</p><button type="button" class="text-button" id="login-privacy">Data sources & browser storage →</button></form></div><div class="privacy-strip"><span>No app password required</span><span>Browser-side analysis</span><span>Public direct records only</span></div>' + scope + '</div>';
+    main.innerHTML = '<div class="welcome"><img class="hitch-mascot" src="/assets/brand/hitch.png" alt="" width="112" height="144" decoding="async"><h1>A clearer view<br>of your circle.</h1><p class="intro">Explore public direct block records among your Bluesky mutuals, with the scope and limits in plain sight.</p><div class="welcome-grid"><div><h2>Three ways to look.</h2><p>Check an account, or explore blocks sent and received within your mutual circle.</p><div class="flow-key"><b>01</b> Connect with Bluesky OAuth</div><div class="flow-key"><b>02</b> Find accounts you follow who follow you back</div><div class="flow-key"><b>03</b> Check direct records, with coverage notes</div></div><form class="auth-form" novalidate><h2>Start with your account.</h2><p>You’ll continue to your account provider to sign in. Your password belongs there.</p><label for="login-handle">Your Bluesky handle or DID</label><input id="login-handle" placeholder="you.bsky.social" autocomplete="username" spellcheck="false" aria-describedby="login-note login-error" required><p class="error-text" id="login-error" role="alert"></p><button class="primary" type="submit">Continue with Bluesky <span aria-hidden="true">→</span></button><p class="form-note" id="login-note">Your browser contacts Bluesky and account data servers. Public block lists may be stored in this browser and reused for up to 24 hours.</p><button type="button" class="text-button" id="login-privacy">Data sources & browser storage →</button></form></div><div class="privacy-strip"><span>No app password required</span><span>Browser-side analysis</span><span>Public direct records only</span></div></div>';
+    main.querySelector('.welcome')!.append(createScopeElement());
     q('#login-error').textContent = message;
     q('#login-privacy').onclick = showData;
     q<HTMLInputElement>('#login-handle').oninput = () => { q('#login-handle').removeAttribute('aria-invalid'); q('#login-error').textContent = ''; };
@@ -104,7 +123,27 @@ export function createApp(services: Services) {
   }
   function ready() {
     shell();
-    q('#content').innerHTML = '<div class="ready section-rule"><div><span class="eyebrow">YOUR CIRCLE, IN CONTEXT</span><h2 style="margin-top:14px">A relationship is not a reason.</h2><p>We look for direct block records, not explanations. Read the result as a snapshot of available data.</p></div><div><div class="flow-key"><b>01</b> Choose an account or circle view</div><div class="flow-key"><b>02</b> Discover your mutual circle</div><div class="flow-key"><b>03</b> Read available public records</div></div></div>' + scope;
+    const readyNode = element('div', 'ready section-rule');
+    const col1 = element('div');
+    col1.append(
+      element('span', 'eyebrow', 'YOUR CIRCLE, IN CONTEXT'),
+      (() => {
+        const h2 = element('h2', '', 'A relationship is not a reason.');
+        h2.style.marginTop = '14px';
+        return h2;
+      })(),
+      element('p', '', 'We look for direct block records, not explanations. Read the result as a snapshot of available data.')
+    );
+
+    const col2 = element('div');
+    for (const [num, text] of [['01', 'Choose an account or circle view'], ['02', 'Discover your mutual circle'], ['03', 'Read available public records']]) {
+      const key = element('div', 'flow-key');
+      key.append(element('b', '', num), document.createTextNode(' ' + text));
+      col2.append(key);
+    }
+
+    readyNode.append(col1, col2);
+    q('#content').replaceChildren(readyNode, createScopeElement());
   }
   function busy(controller: AbortController, title: string, description: string, processed?: number, total?: number) {
     if (!current(controller)) return;
@@ -123,8 +162,7 @@ export function createApp(services: Services) {
     if (total && processed !== undefined) { progress.max = total; progress.value = processed; }
     loading.append(heading, progress, element('p', 'form-note', 'A processed account may still be incomplete. Data sources can respond at different times.'));
     const content = q('#content');
-    content.replaceChildren(loading);
-    const limits = element('div'); limits.innerHTML = scope; content.append(limits);
+    content.replaceChildren(loading, createScopeElement());
     if (processed === undefined) announce(title);
     navigation();
   }
@@ -192,8 +230,7 @@ export function createApp(services: Services) {
     section.append(element('h2', '', title), element('p', '', message));
     const button = element('button', 'secondary', label); button.onclick = action;
     section.append(button);
-    q('#content').replaceChildren(section);
-    const limits = element('div'); limits.innerHTML = scope; q('#content').append(limits);
+    q('#content').replaceChildren(section, createScopeElement());
   }
   function renderResults() {
     shell();
@@ -244,7 +281,7 @@ export function createApp(services: Services) {
       toolbar.append(input, select); section.append(toolbar);
       const labels = element('div', 'list-labels'); labels.setAttribute('aria-hidden', 'true'); labels.append(element('span', '', 'ACCOUNT'), element('span', '', mode === 'lookup' ? 'DIRECT RECORD DIRECTION' : 'WITHIN THIS CIRCLE'), element('span', '', 'DETAILS')); section.append(labels, element('div', 'records')); 
     }
-    const limits = element('div'); limits.innerHTML = scope; section.append(limits);
+    section.append(createScopeElement());
     const times = data.observations.map(o => o.fetchedAt);
     section.append(element('p', '', 'Block list observations: ' + new Date(Math.min(...times)).toLocaleString() + ' – ' + new Date(Math.max(...times)).toLocaleString() + '. A retry replaces the retried accounts’ observations; sources need not share one observation time. Times reflect fetch attempts or cached snapshots, not record creation, and use your browser’s local timezone.'));
     q('#content').replaceChildren(section);
