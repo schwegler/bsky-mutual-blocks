@@ -248,6 +248,38 @@ describe('recovery from interrupted account and storage actions',()=>{
   });
 });
 
+describe('safe scope footer rendering',()=>{
+  function expectScope(selector: string) {
+    const scopes=document.querySelectorAll(selector);
+    expect(scopes).toHaveLength(1);
+    const scope=scopes[0];
+    expect(scope.querySelector('span')?.textContent).toBe('Public direct block records only. List-based blocks and mutes are not included. Records do not explain why a block exists.');
+    const svg=scope.querySelector('svg')!;
+    expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(svg.getAttribute('aria-hidden')).toBe('true');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
+    const circle=svg.querySelector('circle')!;
+    expect(circle.namespaceURI).toBe(svg.namespaceURI);
+    expect([circle.getAttribute('cx'),circle.getAttribute('cy'),circle.getAttribute('r')]).toEqual(['12','12','9']);
+    expect(svg.querySelector('path')?.getAttribute('d')).toBe('M12 10v7m0-11v2');
+  }
+  it('renders the scope footer in signed-out and signed-in views',async()=>{
+    await start(false);expectScope('.welcome .scope-foot');
+    vi.mocked(services.initOAuth).mockResolvedValue({session:{sub:'did:plc:alex'},agent});
+    await start();expectScope('#content > .scope-foot');
+  });
+  it('preserves the footer while loading, showing results and reporting an empty circle',async()=>{
+    await start();const pending=defer<Snapshot>();
+    vi.mocked(scanModule.scanCircle).mockReturnValueOnce(pending.promise);
+    enter('#target',river.handle);submit('.tool-form');
+    await vi.waitFor(()=>expect($('.loading')).not.toBeNull());expectScope('#content > .scope-foot');
+    pending.resolve(fixture());await flush();expectScope('#content section > .scope-foot');
+    vi.mocked(bsky.fetchAllMutuals).mockResolvedValueOnce([]);
+    click('.scan-actions .secondary');await flush();expectScope('#content > .scope-foot');
+    expect($('#content').textContent).toContain('No mutual followers found');
+  });
+});
+
 describe('comparison circle copy',()=>{
   it('distinguishes the signed-in circle from the lookup subject and both ranking directions',async()=>{
     await start();expect($('.intro').textContent).toContain('lookup subject’s mutuals are not fetched');expect($('#target-note').textContent).toContain('mutuals of the signed-in account');
