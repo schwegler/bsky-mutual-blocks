@@ -55,6 +55,18 @@ describe('bounded browser caches',()=>{
     for(const value of [null,{}, {mutuals:[],fetchedAt:now-CIRCLE_TTL},{mutuals:[],fetchedAt:now+1000},{mutuals:[null],fetchedAt:now},{mutuals:[{did:2,handle:3}],fetchedAt:now},{mutuals:'bad',fetchedAt:now}]){sessionStorage.setItem('moots_circle_'+a.did,JSON.stringify(value));expect(readCircle(a.did)).toBeNull()}
     sessionStorage.setItem('moots_circle_'+a.did,'{bad');expect(readCircle(a.did)).toBeNull();expect(readCircle('missing')).toBeNull();
   });
+  it('handles session storage null/undefined and invalid raw strings in readCircle',()=>{
+    sessionStorage.setItem('moots_circle_'+a.did,'null');
+    expect(readCircle(a.did)).toBeNull();
+    sessionStorage.setItem('moots_circle_'+a.did,'undefined');
+    expect(readCircle(a.did)).toBeNull();
+    sessionStorage.setItem('moots_circle_'+a.did,'');
+    expect(readCircle(a.did)).toBeNull();
+    for (const raw of ['123', 'true', '"a_string"', '[1,2,3]']) {
+      sessionStorage.setItem('moots_circle_'+a.did, raw);
+      expect(readCircle(a.did)).toBeNull();
+    }
+  });
   it('continues when browser storage is blocked',()=>{
     vi.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw Error('blocked')});expect(readCircle(a.did)).toBeNull();
     vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw Error('blocked')});expect(()=>saveCircle(a.did,{mutuals:[],fetchedAt:1})).not.toThrow();
