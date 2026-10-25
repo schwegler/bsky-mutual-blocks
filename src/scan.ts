@@ -16,7 +16,7 @@ export interface Snapshot {
   observations: Observation[];
   finishedAt: number;
 }
-export interface ResultRow { account: MutualProfile; related: MutualProfile[]; count: number }
+export interface ResultRow { account: MutualProfile; related: MutualProfile[]; count: number; searchText: string }
 export interface ScanOptions {
   signal: AbortSignal;
   forceRefresh: boolean;
@@ -57,7 +57,11 @@ export function resultRows(snapshot: Snapshot): ResultRow[] {
   for (const observation of snapshot.observations) {
     const subjects = new Set(observation.blockedDids);
     if (snapshot.mode === 'lookup') {
-      if (subjects.has(snapshot.target!.did)) rows.set(observation.moot.did, { account: observation.moot, related: [], count: 1 });
+      if (subjects.has(snapshot.target!.did)) {
+        const moot = observation.moot;
+        const searchText = (moot.handle + ' ' + (moot.displayName || '')).toLowerCase();
+        rows.set(moot.did, { account: moot, related: [], count: 1, searchText });
+      }
       continue;
     }
     for (const subject of subjects) {
@@ -65,7 +69,12 @@ export function resultRows(snapshot: Snapshot): ResultRow[] {
       if (!account || account.did === observation.moot.did) continue;
       const person = snapshot.mode === 'sent' ? observation.moot : account;
       const related = snapshot.mode === 'sent' ? account : observation.moot;
-      const row = rows.get(person.did) ?? { account: person, related: [], count: 0 };
+      const row = rows.get(person.did) ?? {
+        account: person,
+        related: [],
+        count: 0,
+        searchText: (person.handle + ' ' + (person.displayName || '')).toLowerCase()
+      };
       row.related.push(related);
       row.count++;
       rows.set(person.did, row);

@@ -253,7 +253,9 @@ export function createApp(services: Services) {
   }
   function drawRows() {
     const container = q('.records'); container.replaceChildren();
-    const rows = resultRows(snapshot!).filter(row => (row.account.handle + ' ' + (row.account.displayName || '')).toLowerCase().includes(filter.toLowerCase()));
+    const query = filter.toLowerCase();
+    let rows = resultRows(snapshot!);
+    if (query) rows = rows.filter(row => row.searchText.includes(query));
     if (sort === 'name') rows.sort((a, b) => (a.account.displayName || a.account.handle).localeCompare(b.account.displayName || b.account.handle));
     if (!rows.length) {
       const empty = element('div', 'empty'); empty.append(element('h3', '', 'No accounts match that filter.'));
