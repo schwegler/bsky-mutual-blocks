@@ -120,6 +120,19 @@ afterEach(() => {
       expect(resolveHandleMock).toHaveBeenCalledWith({ handle: 'user.bsky.social' });
       expect(result).toEqual({ did: 'did:plc:abc' });
     });
+
+    it('bubbles the error when both getProfile and resolveHandle fail for handle input', async () => {
+      const getProfileMock = vi.fn().mockRejectedValue(new Error('Profile fetch failed'));
+      const resolveHandleMock = vi.fn().mockRejectedValue(new Error('Handle resolution failed'));
+      const mockAgent = {
+        getProfile: getProfileMock,
+        resolveHandle: resolveHandleMock
+      } as unknown as Agent;
+
+      await expect(resolveActor(mockAgent, 'user.bsky.social')).rejects.toThrow('Handle resolution failed');
+      expect(getProfileMock).toHaveBeenCalledWith({ actor: 'user.bsky.social' });
+      expect(resolveHandleMock).toHaveBeenCalledWith({ handle: 'user.bsky.social' });
+    });
   });
   describe('mapConcurrent', () => {
     it('returns empty array when items array is empty', async () => {
