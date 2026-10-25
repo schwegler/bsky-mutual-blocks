@@ -20,6 +20,12 @@ describe('directed circle model',()=>{
     expect(resultRows(fixture('received')).map(r=>[r.account.did,r.related.map(m=>m.did)])).toEqual([[b.did,[a.did,c.did]],[c.did,[a.did,b.did]]]);
   });
   it('does not invent zero-count rows',()=>{const s=fixture('sent');s.observations=[];expect(resultRows(s)).toEqual([])});
+  it('reuses cached mutuals map across repeated resultRows calls on the same snapshot',()=>{
+    const s = fixture('sent');
+    const first = resultRows(s);
+    const second = resultRows(s);
+    expect(first).toEqual(second);
+  });
   it('keeps cached source timestamps and processes fresh observations',async()=>{
     const fetch=vi.spyOn(bsky,'fetchAllUserBlocks').mockImplementation(async(did,_retry,options)=>{options?.onSource?.(did===a.did?'cache':'network',100);return {blockedDids:[b.did],isComplete:true}});
     const progress=vi.fn();const s=await scanCircle({} as Agent,{mode:'lookup',target:b,mutuals:[a,b],circleFetchedAt:1},{signal:new AbortController().signal,forceRefresh:false,onProgress:progress});

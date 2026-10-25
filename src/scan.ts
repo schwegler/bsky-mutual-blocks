@@ -51,8 +51,14 @@ export async function scanCircle(
   return { ...input, observations: input.mutuals.map(m => previous.get(m.did)!), finishedAt: Date.now() };
 }
 
+const mutualsCache = new WeakMap<MutualProfile[], Map<string, MutualProfile>>();
+
 export function resultRows(snapshot: Snapshot): ResultRow[] {
-  const mutuals = new Map(snapshot.mutuals.map(m => [m.did, m]));
+  let mutuals = mutualsCache.get(snapshot.mutuals);
+  if (!mutuals) {
+    mutuals = new Map(snapshot.mutuals.map(m => [m.did, m]));
+    mutualsCache.set(snapshot.mutuals, mutuals);
+  }
   const rows = new Map<string, ResultRow>();
   for (const observation of snapshot.observations) {
     const subjects = new Set(observation.blockedDids);
