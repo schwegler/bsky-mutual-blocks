@@ -45,6 +45,7 @@ export function createApp(services: Services) {
   let profile: MutualProfile | null = null;
   let mode: Mode = 'lookup';
   let snapshot: Snapshot | null = null;
+  let cachedRows: ResultRow[] | null = null;
   let active: AbortController | null = null;
   let targetValue = '';
   let filter = '';
@@ -203,7 +204,7 @@ export function createApp(services: Services) {
         circle = { mutuals, fetchedAt: Date.now() }; saveCircle(userDid, circle);
       }
       if (!circle.mutuals.length) {
-        snapshot = null; active = null; shell();
+        snapshot = null; cachedRows = null; active = null; shell();
         showEmpty('No mutual followers found.', 'No accounts in the returned follow list were marked as following you back. Refresh the circle if you expected mutuals here.', () => { void run('refresh'); }, 'Refresh mutual circle');
         announce('No mutual followers found in the returned circle.'); return;
       }
@@ -221,7 +222,7 @@ export function createApp(services: Services) {
       active = null; shell();
       const status = (error as { status?: number })?.status;
       const expired = status === 401 || status === 403;
-      showEmpty(expired ? 'Your session needs a fresh start.' : 'The scan could not be completed.', expired ? 'Reconnect with Bluesky, then start a new scan.' : describeError(error) + ' No new result was published. This does not mean no records exist.', () => { if (expired) { agent = null; profile = null; snapshot = null; login(); } else void run(kind); }, expired ? 'Reconnect with Bluesky' : 'Try again');
+      showEmpty(expired ? 'Your session needs a fresh start.' : 'The scan could not be completed.', expired ? 'Reconnect with Bluesky, then start a new scan.' : describeError(error) + ' No new result was published. This does not mean no records exist.', () => { if (expired) { agent = null; profile = null; snapshot = null; cachedRows = null; login(); } else void run(kind); }, expired ? 'Reconnect with Bluesky' : 'Try again');
       announce(expired ? 'Reconnect with Bluesky to continue.' : 'Scan failed. No new result was published.'); focusMain();
     }
   }
@@ -235,7 +236,8 @@ export function createApp(services: Services) {
   function renderResults() {
     shell();
     const data = snapshot!;
-    const rows = resultRows(data);
+    cachedRows = resultRows(data);
+    const rows = cachedRows;
     const incomplete = data.observations.filter(o => !o.isComplete);
     const cached = data.observations.filter(o => o.source === 'cache');
     const section = element('section', 'section-rule'); section.setAttribute('aria-label', 'Scan results');
@@ -291,7 +293,7 @@ export function createApp(services: Services) {
   function drawRows() {
     const container = q('.records'); container.replaceChildren();
     const query = filter.toLowerCase();
-    let rows = resultRows(snapshot!);
+    let rows = cachedRows!.slice();
     if (query) rows = rows.filter(row => row.searchText.includes(query));
     if (sort === 'name') rows.sort((a, b) => (a.account.displayName || a.account.handle).localeCompare(b.account.displayName || b.account.handle));
     if (!rows.length) {
@@ -385,18 +387,18 @@ export function createApp(services: Services) {
       button.disabled = true;
       if (active) cancelScan();
       invalidateSuggestions();
-      try { clearCircleCache(); await clearBlockCache(); snapshot = null; if (agent && !active) ready(); dialogContent.querySelector('#clear-status')!.textContent = 'Cached scan data cleared. Your OAuth session is unchanged.'; }
+      try { clearCircleCache(); await clearBlockCache(); snapshot = null; cachedRows = null; if (agent && !active) ready(); dialogContent.querySelector('#clear-status')!.textContent = 'Cached scan data cleared. Your OAuth session is unchanged.'; }
       catch { dialogContent.querySelector('#clear-status')!.textContent = 'Some cached data could not be cleared. Try again or use your browser’s site-data settings.'; }
       finally { button.disabled = false; }
     };
   }
   async function logout(button: HTMLButtonElement) {
     active?.abort(); active = null; invalidateSuggestions(); button.disabled = true;
-    try { await services.signOut(); agent = null; userDid = ''; profile = null; snapshot = null; try { clearCircleCache(); } catch { /* sign-out must still complete */ } login(); announce('Signed out. Stored public block lists remain until cleared or overwritten.'); focusMain(); }
+    try { await services.signOut(); agent = null; userDid = ''; profile = null; snapshot = null; cachedRows = null; try { clearCircleCache(); } catch { /* sign-out must still complete */ } login(); announce('Signed out. Stored public block lists remain until cleared or overwritten.'); focusMain(); }
     catch { button.disabled = false; if (snapshot) renderResults(); else ready(); announce('Sign-out failed. Please try again.'); const note = element('p', 'error-notice', 'Sign-out failed. Please try again.'); main.prepend(note); }
   }
   document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => {
-    button.onclick = () => { if (!agent || active) return; mode = button.dataset.mode as Mode; snapshot = null; filter = ''; sort = 'count'; ready(); focusMain(); };
+    button.onclick = () => { if (!agent || active) return; mode = button.dataset.mode as Mode; snapshot = null; cachedRows = null; filter = ''; sort = 'count'; ready(); focusMain(); };
   });
   document.querySelector<HTMLElement>('#scope')!.onclick = showData;
   document.querySelector<HTMLElement>('#help')!.onclick = () => openDialog('<h2 id="dialog-title">A small window into the graph.</h2><p>Connect with Bluesky OAuth. Every view uses the signed-in account’s mutual circle: accounts it follows that follow it back.</p><h3>Account lookup</h3><p>Find members of the signed-in account’s circle with a direct block record naming the lookup subject. Direction: circle member → lookup subject. The lookup subject’s mutuals are not fetched.</p><h3>Blocks sent / received</h3><p>Explore directed records between mutuals, ranked by observed count. Open a row to inspect direction. These are not network-wide rankings.</p><h3>Keep the limits in view.</h3><p>Partial coverage and cached data affect results. Records do not explain intent. This independent tool is not affiliated with Bluesky.</p><p><a href="https://atproto.com/blog/block-implementation" target="_blank" rel="noopener noreferrer">AT Protocol: public block records ↗</a></p>');

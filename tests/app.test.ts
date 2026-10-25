@@ -132,6 +132,26 @@ describe('guarded scan lifecycle',()=>{
   });
 });
 describe('results, ranks and safe disclosure content',()=>{
+  it('reuses computed rows while filtering and restores count order after name sorting',async()=>{
+    const compute=vi.spyOn(scanModule,'resultRows');
+    await start();click('[data-mode=sent]');
+    const initial=fixture('sent');initial.observations[0].moot={...jun,displayName:'Z Jun'};
+    vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(initial);submit('.tool-form');await flush();
+    expect(compute).toHaveBeenCalledTimes(1);
+    const names=()=>Array.from(document.querySelectorAll('.record > summary .person b'),node=>node.textContent);
+    expect(names()).toEqual(['Z Jun','Sol Rivera']);
+    const select=$<HTMLSelectElement>('.toolbar select');
+    select.value='name';select.dispatchEvent(new Event('change'));
+    expect(names()).toEqual(['Sol Rivera','Z Jun']);
+    enter('.toolbar input','SOL');expect(names()).toEqual(['Sol Rivera']);
+    enter('.toolbar input','');select.value='count';select.dispatchEvent(new Event('change'));
+    expect(names()).toEqual(['Z Jun','Sol Rivera']);expect(compute).toHaveBeenCalledTimes(1);
+    const updated=fixture('sent');updated.observations[0].blockedDids=[];
+    vi.mocked(scanModule.scanCircle).mockResolvedValueOnce(updated);
+    click('.scan-actions .secondary');await flush();
+    expect(names()).toEqual(['Sol Rivera']);expect(compute).toHaveBeenCalledTimes(2);
+  });
+
   it('renders directional rows, safe external links, name sorting and local filter recovery',async()=>{
     await start();await lookup();const row=$<HTMLDetailsElement>('.record');row.open=true;expect(row.textContent).toContain('→ did:plc:river');expect(row.querySelector('a')?.href).toContain('did%3Aplc%3Ajun');
     enter('.toolbar input','no match');expect($('.records').textContent).toContain('No accounts match');click('.records button');expect(document.activeElement).toBe($('.toolbar input'));expect(document.querySelectorAll('.record')).toHaveLength(2);
