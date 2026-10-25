@@ -188,6 +188,23 @@ describe('recovery from interrupted account and storage actions',()=>{
   });
 });
 
+describe('safe scope footer rendering',()=>{
+  it('renders scope footer safely using DOM nodes in both signed-out and signed-in views',async()=>{
+    await start(false);
+    const welcomeScope = $('.welcome .scope-foot');
+    expect(welcomeScope).not.toBeNull();
+    expect(welcomeScope.querySelector('svg')).not.toBeNull();
+    expect(welcomeScope.querySelector('span')?.textContent).toContain('Public direct block records only');
+
+    vi.mocked(services.initOAuth).mockResolvedValue({ session: { sub: 'did:plc:alex' }, agent });
+    await start(true);
+    const readyScope = $('#content .scope-foot');
+    expect(readyScope).not.toBeNull();
+    expect(readyScope.querySelector('svg')).not.toBeNull();
+    expect(readyScope.querySelector('span')?.textContent).toContain('Public direct block records only');
+  });
+});
+
 describe('comparison circle copy',()=>{
   it('distinguishes the signed-in circle from the lookup subject and both ranking directions',async()=>{
     await start();expect($('.intro').textContent).toContain('lookup subject’s mutuals are not fetched');expect($('#target-note').textContent).toContain('mutuals of the signed-in account');
