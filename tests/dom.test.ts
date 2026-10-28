@@ -14,7 +14,32 @@ it('gives result handles explicit HTTPS profile destinations without toggling th
   const profile={did:'did:plc:binfire',handle:'binfire.bsky.social'};
   const details=document.createElement('details');const summary=document.createElement('summary');summary.append(person(profile,true));details.append(summary);document.body.append(details);
   let bubbled=false;summary.addEventListener('click',()=>{bubbled=true});
-  const link=summary.querySelector('a')!;expect(link.href).toBe('https://bsky.app/profile/did%3Aplc%3Abinfire');expect(link.textContent).toBe('@binfire.bsky.social');expect(link.getAttribute('aria-label')).toBe('Open binfire.bsky.social on Bluesky (new tab)');
+  const link=summary.querySelector('a')!;expect(link.href).toBe('https://bsky.app/profile/did:plc:binfire');expect(link.textContent).toBe('@binfire.bsky.social');expect(link.getAttribute('aria-label')).toBe('Open binfire.bsky.social on Bluesky (new tab)');
   const event=new Event('click',{bubbles:true,cancelable:true});link.dispatchEvent(event);expect(bubbled).toBe(false);expect(event.defaultPrevented).toBe(false);expect(details.open).toBe(false);
   expect(person(profile).querySelector('a')).toBeNull();
+});
+
+// Check serialized hrefs: these are the destinations users follow or copy.
+it.each([
+  ['did:plc:exy22rd4a26hwdph4pitcpzg', 'did:plc:exy22rd4a26hwdph4pitcpzg'],
+  ['did:web:example.test:user:alice', 'did:web:example.test:user:alice'],
+  ['did:web:example.test%3A8443:user', 'did:web:example.test%253A8443:user'],
+  ['alice.bsky.social', 'alice.bsky.social'],
+  ['did:plc:x/../../admin?x=1#fragment', 'did%3Aplc%3Ax%2F..%2F..%2Fadmin%3Fx%3D1%23fragment'],
+  ['https://evil.test/profile', 'https%3A%2F%2Fevil.test%2Fprofile'],
+  ['javascript:alert(1)', 'javascript%3Aalert(1)'],
+  ['did:plc:x%2Fadmin', 'did:plc:x%252Fadmin'],
+  ['did:plc:x\\admin', 'did%3Aplc%3Ax%5Cadmin'],
+  ['did:plc:x\nadmin', 'did%3Aplc%3Ax%0Aadmin'],
+])('builds a safe profile destination for %s', (did, path) => {
+  const profile = { did, handle: 'alice.bsky.social' };
+  for (const link of [profileLink(profile), person(profile, true).querySelector('a')!]) {
+    expect(link.href).toBe('https://bsky.app/profile/' + path);
+    const url = new URL(link.href);
+    expect(url.origin).toBe('https://bsky.app');
+    expect(url.search).toBe('');
+    expect(url.hash).toBe('');
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toBe('noopener noreferrer');
+  }
 });

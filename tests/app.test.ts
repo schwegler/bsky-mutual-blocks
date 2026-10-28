@@ -153,7 +153,7 @@ describe('results, ranks and safe disclosure content',()=>{
   });
 
   it('renders directional rows, safe external links, name sorting and local filter recovery',async()=>{
-    await start();await lookup();const row=$<HTMLDetailsElement>('.record');row.open=true;expect(row.textContent).toContain('→ did:plc:river');expect(row.querySelector('a')?.href).toContain('did%3Aplc%3Ajun');
+    await start();await lookup();const row=$<HTMLDetailsElement>('.record');row.open=true;expect(row.textContent).toContain('→ did:plc:river');expect(row.querySelector('a')?.href).toBe('https://bsky.app/profile/did:plc:jun');
     enter('.toolbar input','no match');expect($('.records').textContent).toContain('No accounts match');click('.records button');expect(document.activeElement).toBe($('.toolbar input'));expect(document.querySelectorAll('.record')).toHaveLength(2);
     const sort=$<HTMLSelectElement>('.toolbar select');sort.value='name';sort.dispatchEvent(new Event('change'));expect($('.person b').textContent).toBe('Jun Park');
   });
@@ -292,7 +292,8 @@ describe('comparison circle copy',()=>{
 describe('profile handle destinations',()=>{
   it.each(['lookup','sent','received'] as const)('uses explicit profile links in %s result summaries and preserves contact mail',async mode=>{
     await start();if(mode==='lookup')await lookup();else{click('[data-mode='+mode+']');submit('.tool-form');await flush()}
-    const link=$<HTMLAnchorElement>('.record summary .handle-link');expect(link.href).toBe('https://bsky.app/profile/'+encodeURIComponent(mode==='received'?river.did:jun.did));expect(link.getAttribute('aria-label')).toContain('on Bluesky');expect(document.querySelector('meta[name="format-detection"]')?.getAttribute('content')).toContain('email=no');expect(document.querySelector('a[href="mailto:andrew@schweg.xyz"]')).not.toBeNull();
+    const link=$<HTMLAnchorElement>('.record summary .handle-link');expect(link.href).toBe('https://bsky.app/profile/'+(mode==='received'?river.did:jun.did));expect(link.getAttribute('aria-label')).toContain('on Bluesky');expect(document.querySelector('meta[name="format-detection"]')?.getAttribute('content')).toContain('email=no');expect(document.querySelector('a[href="mailto:andrew@schweg.xyz"]')).not.toBeNull();
     const row=$<HTMLDetailsElement>('.record');row.open=true;expect(row.open).toBe(true);
+    for (const profile of row.querySelectorAll<HTMLAnchorElement>('a')) expect(profile.href).toMatch(/^https:\/\/bsky\.app\/profile\/did:plc:/);
   });
 });

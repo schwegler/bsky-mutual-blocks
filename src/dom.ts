@@ -45,7 +45,12 @@ export function person(profile: MutualProfile, linkedHandle = false): HTMLElemen
 }
 export function profileLink(profile: MutualProfile): HTMLAnchorElement {
   const link = element('a', 'profile-link', 'Open Bluesky profile ↗');
-  link.href = 'https://bsky.app/profile/' + encodeURIComponent(profile.did);
+  const encoded = encodeURIComponent(profile.did);
+  // DID delimiter colons belong in Bluesky's profile path. Encode first so
+  // percent escapes and untrusted path/query characters remain confined.
+  const actor = /^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$/.test(profile.did)
+    ? encoded.replace(/%3A/g, ':') : encoded;
+  link.href = 'https://bsky.app/profile/' + actor;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   // Keep a profile link inside summary independent from its disclosure action.
